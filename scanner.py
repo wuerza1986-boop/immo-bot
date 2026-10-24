@@ -1,12 +1,9 @@
 import os
-import threading
-import time
 import requests
 from flask import Flask
 
 app = Flask(__name__)
 
-# Umgebungsvariablen aus Render laden
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_GROUP_ID = os.environ.get("TELEGRAM_GROUP_ID")
 
@@ -24,26 +21,15 @@ def send_telegram_message(text):
     print("Fehler beim Senden der Telegram-Nachricht:", e)
 
 
-def background_deal_hunter():
-  print("Hintergrund-Dienst gestartet...")
-  # Test-Nachricht direkt beim Start senden, um zu prüfen, ob alles klappt
-  send_telegram_message(
-      "🤖 Deal Hunter Bot ist erfolgreich gestartet und überwacht den Markt!"
-  )
-
-  while True:
-    # Hier läuft später deine Immobilien-Suche
-    # Aktuelles Intervall: Alle 30 Minuten (1800 Sekunden)
-    time.sleep(1800)
-
-
-# Startet den Hintergrund-Dienst parallel zum Flask-Webserver
-threading.Thread(target=background_deal_hunter, daemon=True).start()
+# Einmalige Startnachricht direkt beim Start senden
+send_telegram_message(
+    "🤖 Deal Hunter Bot ist erfolgreich gestartet und überwacht den Markt!"
+)
 
 
 @app.route("/")
 def home():
-  return "Hello, World! Immo-Bot ist live."
+  return "Immo Deal Hunter Bot läuft aktiv."
 
 
 if __name__ == "__main__":
