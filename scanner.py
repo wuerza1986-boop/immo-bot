@@ -1,3 +1,4 @@
+
 import os
 import requests
 from flask import Flask, request, jsonify
@@ -19,7 +20,6 @@ def run_scan():
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
-    # Telefonnummer jetzt als anklickbarer tel:-Link formatiert
     text = (
         f"🕒 **Online seit:** 24.10.2026, 21:43 Uhr\n"
         f"🔥 **-15,4% unter Zielpreis!**\n"
@@ -31,19 +31,20 @@ def run_scan():
         f"📐 75 QM\n"
         f"🔨 Renovierungsbedürftig: Ja\n"
         f"👤 Anbieter: Privat\n"
-        f"📞 [069 12345678](tel:06912345678)\n\n"
+        f"📞 069 12345678\n\n"
         f"🔗 [Direktlink zum Angebot](https://www.immobilienscout24.de)"
     )
     
+    # Initiale Buttons (alle noch ohne Haken)
     reply_markup = {
         "inline_keyboard": [
             [
-                {"text": "📞 Angerufen", "callback_data": "status_angerufen"},
-                {"text": "👀 Besichtigung", "callback_data": "status_besichtigung"}
+                {"text": "📞 Angerufen", "callback_data": "toggle_angerufen"},
+                {"text": "👀 Besichtigung", "callback_data": "toggle_besichtigung"}
             ],
             [
-                {"text": "⭐ Favorit", "callback_data": "status_favorit"},
-                {"text": "❌ Abgelehnt", "callback_data": "status_abgelehnt"}
+                {"text": "⭐ Favorit", "callback_data": "toggle_favorit"},
+                {"text": "❌ Abgelehnt", "callback_data": "toggle_abgelehnt"}
             ]
         ]
     }
@@ -82,37 +83,83 @@ def telegram_webhook():
         message_id = message["message_id"]
         last_chat_id = str(chat_id)
         original_text = message.get("text", "")
+        current_markup = message.get("reply_markup", {}).get("inline_keyboard", [])
 
-        # Neuen Status festlegen
-        new_status = "Noch offen"
-        if action == "status_angerufen":
-            new_status = "📞 Angerufen"
-        elif action == "status_besichtigung":
-            new_status = "👀 Besichtigung"
-        elif action == "status_favorit":
-            new_status = "⭐ Favorit"
-        elif action == "status_abgelehnt":
-            new_status = "❌ Abgelehnt"
+        # Prüfen, welcher Button aktuell welchen Haken hat
+        is_angerufen = False
+        is_besichtigung = False
+        is_favorit = False
+        is_abgelehnt = False
 
-        # Zeile mit dem Status in der Nachricht intelligent ersetzen oder aktualisieren
+        for row in current_markup:
+            for btn in row:
+                cb = btn["callback_data"]
+                txt = btn["text"]
+                if cb == "toggle_angerufen" and "✅" in txt: is_angerufen = True
+                if cb == "toggle_besichtigung" and "✅" in txt: is_besichtigung = True
+                if cb == "toggle_favorit" and "✅" in txt: is_favorit = True
+                if cb == "toggle_abgelehnt" and "✅" in txt: is_abgelehnt = True
+
+        # Geklickten Button umschalten (Togglen)
+        if action == "toggle_angerufen":
+            is_angerufen = not is_angerufen
+            if is_angerufen: is_abgelehnt = False # Wer angerufen/favorisiert, lehnt in der Regel nicht gleichzeitig ab
+        elif action == "toggle_besichtigung":
+            is_besichtigung = not is_besichtigung
+        elif action == "toggle_favorit":
+            is_favorit = not is_favorit
+        elif action == "toggle_abgelehnt":
+            is_abgelehnt = not is_abgelehnt
+            if is_abgelehnt: # Wenn abgelehnt wird, kann man andere active States zurücksetzen (optional)
+                is_angerufen = False
+                is_besichtigung = False
+                is_favorit = False
+
+        # Neue Button-Texte generieren
+        b_angerufen = "✅ Angerufen" if is_angerufen else "📞 Angerufen"
+        b_besichtigung = "✅ Besichtigung" if is_besichtigung else "👀 Besichtigung"
+        b_favorit = "✅ Favorit" if is_favorit else "⭐ Favorit"
+        b_abgelehnt = "✅ Abgelehnt" if is_abgelehnt else "❌ Abgelehnt"
+
+        new_reply_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": b_angerufen, "callback_data": "toggle_angerufen"},
+                    {"text": b_besichtigung, "callback_data": "toggle_besichtigung"}
+                ],
+                [
+                    {"text": b_favorit, "callback_data": "toggle_favorit"},
+                    {"text": b_abgelehnt, "callback_data": "toggle_abgelehnt"}
+                ]
+            ]
+        }
+
+        # Status-Text für oben zusammenbauen
+        active_statuses = []
+        if is_angerufen: active_statuses.append("📞 Angerufen")
+        if is_besichtigung: active_statuses.append("👀 Besichtigung")
+        if is_favorit: active_statuses.append("⭐ Favorit")
+        if is_abgelehnt: active_statuses.append("❌ Abgelehnt")
+
+        status_str = ", ".join(active_statuses) if active_statuses else "Noch offen"
+
+        # Nachrichtentext bereinigen und neuen Status einfügen
         lines = original_text.split("\n")
         updated_lines = []
-        status_updated = False
         
         for line in lines:
-            if line.startswith("📌 **Status:**") or line.startswith("Status:"):
-                updated_lines.append(f"📌 **Status:** {new_status}")
-                status_updated = True
-            else:
-                updated_lines.append(line)
-                
-        # Falls vorher kein Status da war, nach der Prozent-Zeile einfügen
-        if not status_updated and len(updated_lines) > 1:
-            updated_lines.insert(2, f"📌 **Status:** {new_status}")
+            if "Status:" in line:
+                continue
+            updated_lines.append(line)
+            
+        if len(updated_lines) > 1:
+            updated_lines.insert(2, f"📌 **Status:** {status_str}")
+        else:
+            updated_lines.append(f"📌 **Status:** {status_str}")
 
         updated_text = "\n".join(updated_lines)
 
-        # Nachricht aktualisieren (Buttons bleiben erhalten!)
+        # Nachricht aktualisieren
         edit_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
         requests.post(edit_url, json={
             "chat_id": chat_id,
@@ -120,11 +167,11 @@ def telegram_webhook():
             "text": updated_text,
             "parse_mode": "Markdown",
             "disable_web_page_preview": True,
-            "reply_markup": message.get("reply_markup")
+            "reply_markup": new_reply_markup
         })
 
         answer_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
-        requests.post(answer_url, json={"callback_query_id": query_id, "text": f"Status: {new_status}"})
+        requests.post(answer_url, json={"callback_query_id": query_id, "text": f"Status aktualisiert: {status_str}"})
 
     return jsonify({"status": "ok"}), 200
 
