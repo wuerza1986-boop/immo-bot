@@ -19,9 +19,11 @@ def run_scan():
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
+    # Telefonnummer jetzt als anklickbarer tel:-Link formatiert
     text = (
         f"🕒 **Online seit:** 24.10.2026, 21:43 Uhr\n"
         f"🔥 **-15,4% unter Zielpreis!**\n"
+        f"📌 **Status:** Noch offen\n"
         f"🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
         f"📍 Frankfurt Griesheim\n"
         f"💰 200.000€ (QMP: 2200€)\n"
@@ -29,19 +31,19 @@ def run_scan():
         f"📐 75 QM\n"
         f"🔨 Renovierungsbedürftig: Ja\n"
         f"👤 Anbieter: Privat\n"
-        f"📞 069 12345678\n\n"
+        f"📞 [069 12345678](tel:06912345678)\n\n"
         f"🔗 [Direktlink zum Angebot](https://www.immobilienscout24.de)"
     )
     
     reply_markup = {
         "inline_keyboard": [
             [
-                {"text": "Angerufen", "callback_data": "status_angerufen"},
-                {"text": "Besichtigung", "callback_data": "status_besichtigung"}
+                {"text": "📞 Angerufen", "callback_data": "status_angerufen"},
+                {"text": "👀 Besichtigung", "callback_data": "status_besichtigung"}
             ],
             [
-                {"text": "Favorit", "callback_data": "status_favorit"},
-                {"text": "Abgelehnt", "callback_data": "status_abgelehnt"}
+                {"text": "⭐ Favorit", "callback_data": "status_favorit"},
+                {"text": "❌ Abgelehnt", "callback_data": "status_abgelehnt"}
             ]
         ]
     }
@@ -81,29 +83,48 @@ def telegram_webhook():
         last_chat_id = str(chat_id)
         original_text = message.get("text", "")
 
-        status_text = ""
+        # Neuen Status festlegen
+        new_status = "Noch offen"
         if action == "status_angerufen":
-            status_text = "\n\n📌 Status: Angerufen"
+            new_status = "📞 Angerufen"
         elif action == "status_besichtigung":
-            status_text = "\n\n📌 Status: Besichtigung"
+            new_status = "👀 Besichtigung"
         elif action == "status_favorit":
-            status_text = "\n\n📌 Status: Favorit"
+            new_status = "⭐ Favorit"
         elif action == "status_abgelehnt":
-            status_text = "\n\n📌 Status: Abgelehnt"
+            new_status = "❌ Abgelehnt"
 
-        updated_text = original_text + status_text
+        # Zeile mit dem Status in der Nachricht intelligent ersetzen oder aktualisieren
+        lines = original_text.split("\n")
+        updated_lines = []
+        status_updated = False
+        
+        for line in lines:
+            if line.startswith("📌 **Status:**") or line.startswith("Status:"):
+                updated_lines.append(f"📌 **Status:** {new_status}")
+                status_updated = True
+            else:
+                updated_lines.append(line)
+                
+        # Falls vorher kein Status da war, nach der Prozent-Zeile einfügen
+        if not status_updated and len(updated_lines) > 1:
+            updated_lines.insert(2, f"📌 **Status:** {new_status}")
 
+        updated_text = "\n".join(updated_lines)
+
+        # Nachricht aktualisieren (Buttons bleiben erhalten!)
         edit_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
         requests.post(edit_url, json={
             "chat_id": chat_id,
             "message_id": message_id,
             "text": updated_text,
             "parse_mode": "Markdown",
-            "disable_web_page_preview": True
+            "disable_web_page_preview": True,
+            "reply_markup": message.get("reply_markup")
         })
 
         answer_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
-        requests.post(answer_url, json={"callback_query_id": query_id, "text": "Status aktualisiert!"})
+        requests.post(answer_url, json={"callback_query_id": query_id, "text": f"Status: {new_status}"})
 
     return jsonify({"status": "ok"}), 200
 
