@@ -5,8 +5,6 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 TELEGRAM_BOT_TOKEN = "8322651200:AAHTVpUjCVUFk2PiAGItb_hhlaKtMB5Tuf0"
-
-# Die Chat-ID wird hier automatisch gespeichert, sobald du dem Bot schreibst
 active_chat_id = None
 
 @app.route("/", methods=["GET", "POST"])
@@ -17,18 +15,22 @@ def home():
 def run_scan():
     global active_chat_id
     if not active_chat_id:
-        return jsonify({"status": "Fehler", "details": "Bitte schreibe zuerst eine Nachricht an den Bot oder in deine Telegram-Gruppe, damit er die Chat-ID registrieren kann!"}), 400
+        return jsonify({"status": "Fehler", "details": "Bitte schreibe zuerst eine Nachricht in deine Telegram-Gruppe, damit der Bot die ID registrieren kann!"}), 400
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
+    # Exakter Aufbau nach deinen Vorgaben
     text = (
         f"🚨 **IMMO DEAL GEFUNDEN!** 🚨\n\n"
-        f"📍 **Stadt:** Frankfurt am Main\n"
-        f"🏠 **Titel:** 3-Zimmer Wohnung Testobjekt\n"
-        f"💰 **Preis:** 240.000 €\n"
-        f"📐 **Fläche:** 95 m²\n"
-        f"📊 **Quadratmeterpreis:** 2.526 €/m²\n\n"
-        f"🔗 [Zum Angebot](https://www.immobilienscout24.de)"
+        f"📍 **Stadt / QM Zielpreis:** Frankfurt am Main / 3.000 €/m²\n"
+        f"💰 **Preis / QM Preis / -%:** 240.000 € / 2.526 €/m² / -15,8%\n"
+        f"📐 **Quadratmeter:** 95 m²\n"
+        f"🚪 **Zimmeranzahl:** 3 Zimmer\n"
+        f"🏢 **Makler:** Ja\n"
+        f"🔨 **Renovierungsbedürftig:** Nein\n"
+        f"👤 **Kontaktdaten:** Immobilien Meyer GmbH\n"
+        f"📞 **Telefonnummer:** [069 12345678](tel:+496912345678)\n\n"
+        f"🔗 [Direktlink aufs Angebot](https://www.immobilienscout24.de)"
     )
     
     reply_markup = {
