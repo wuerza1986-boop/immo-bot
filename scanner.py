@@ -1,7 +1,7 @@
 import os
 import math
 import sqlite3
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
 
@@ -67,7 +67,7 @@ def berechne_entfernung(lat1, lon1, lat2, lon2):
 
 @app.route("/", methods=["GET", "POST"])
 def home():
-    return "Deal Hunter Anker-System is active and running!"
+    return render_template("index.html")
 
 # API: Anker-Städte abrufen
 @app.route('/api/anker', methods=['GET'])
