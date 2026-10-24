@@ -7,14 +7,9 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-  # .strip() entfernt automatisch versehentliche Leerzeichen oder Zeilenumbrüche!
-  token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-  chat_id = os.environ.get("TELEGRAM_GROUP_ID", "").strip()
-
-  if not token or not chat_id:
-    return (
-        "Fehler: TELEGRAM_BOT_TOKEN oder TELEGRAM_GROUP_ID fehlen in Render!"
-    )
+  # Direkt hartcodiert zum Testen:
+  token = "8322651200:AAEo1XuXZF5webGi1EW1tWSRnKk6bcx61c"
+  chat_id = "-1004495350584"
 
   url = f"https://api.telegram.org/bot{token}/sendMessage"
   payload = {
