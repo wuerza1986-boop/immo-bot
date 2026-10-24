@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deal Hunter - Anker Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-color: #38bdf8;
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            --success-color: #22c55e;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-color); padding: 16px; max-width: 600px; margin: 0 auto; }
+        header { margin-bottom: 24px; text-align: center; }
+        h1 { font-size: 1.5rem; color: var(--accent-color); margin-bottom: 6px; }
+        p.subtitle { font-size: 0.85rem; color: var(--text-muted); }
+        .card { background-color: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .stadt-name { font-size: 1.1rem; font-weight: 600; }
+        .rabatt-tag { background-color: rgba(56, 189, 248, 0.15); color: var(--accent-color); padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+        .label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; display: block; }
+        .val { font-size: 0.95rem; font-weight: 500; }
+        input[type="number"] { width: 100%; background-color: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); padding: 8px 10px; border-radius: 6px; font-size: 0.95rem; outline: none; }
+        button.btn-save { width: 100%; background-color: var(--accent-color); color: #0f172a; border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: var(--success-color); color: white; padding: 10px 20px; border-radius: 20px; font-size: 0.85rem; display: none; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🎯 Deal Hunter Anker</h1>
+        <p class="subtitle">Manuelle Ziel-QMP Steuerung & 20km Radius Basis</p>
+    </header>
+    <div id="anker-list"><p style="text-align: center; color: var(--text-muted);">Lade Anker-Städte...</p></div>
+    <div id="toast" class="toast">Erfolgreich gespeichert!</div>
+    <script>
+        async function loadAnkers() {
+            try {
+                const res = await fetch('/api/anker');
+                const data = await res.json();
+                const container = document.getElementById('anker-list');
+                container.innerHTML = '';
+                data.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    card.innerHTML = `
+                        <div class="card-header">
+                            <span class="stadt-name">${item.stadt}</span>
+                            <span class="rabatt-tag" id="rabatt-${item.id}">${item.rabatt_prozent}% Ziel-Rabatt</span>
+                        </div>
+                        <div class="grid">
+                            <div><span class="label">Markt-QMP (€/m²)</span><span class="val">${item.markt_qmp} €</span></div>
+                            <div><span class="label">Dein Ziel-QMP (€/m²)</span><input type="number" id="input-${item.id}" value="${item.ziel_qmp}"></div>
+                        </div>
+                        <button class="btn-save" onclick="updateAnker(${item.id}, ${item.markt_qmp})">Speichern</button>
+                    `;
+                    container.appendChild(card);
+                });
+            } catch (err) { document.getElementById('anker-list').innerHTML = '<p style="color:red; text-align:center;">Fehler beim Laden.</p>'; }
+        }
+        async function updateAnker(id, marktQmp) {
+            const inputVal = parseFloat(document.getElementById(`input-${id}`).value);
+            if (!inputVal) return;
+            try {
+                const res = await fetch(`/api/anker/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ziel_qmp: inputVal })
+                });
+                if (res.ok) {
+                    const neuRabatt = (((inputVal - marktQmp) / marktQmp) * 100).toFixed(1);
+                    document.getElementById(`rabatt-${id}`).innerText = `${neuRabatt}% Ziel-Rabatt`;
+                    const toast = document.getElementById('toast');
+                    toast.style.display = 'block';
+                    setTimeout(() => { toast.style.display = 'none'; }, 2000);
+                }
+            } catch (err) { alert('Fehler beim Speichern'); }
+        }
+        loadAnkers();
+    </script>
+</body>
+</html>
