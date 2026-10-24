@@ -4,16 +4,21 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Fester Token und deine Gruppen-ID
 TELEGRAM_BOT_TOKEN = "8322651200:AAHTVpUjCVUFk2PiAGItb_hhlaKtMB5Tuf0"
-TELEGRAM_CHAT_ID = "-10023456789"  # Falls deine Gruppe eine andere ID hat, hier anpassen
+
+# Die Chat-ID wird hier automatisch gespeichert, sobald du dem Bot schreibst
+active_chat_id = None
 
 @app.route("/", methods=["GET", "POST"])
 def home():
-    return "Immo Scraper is active!", 200
+    return f"Immo Scraper active! Aktuelle Chat-ID: {active_chat_id}", 200
 
 @app.route("/scan", methods=["GET"])
 def run_scan():
+    global active_chat_id
+    if not active_chat_id:
+        return jsonify({"status": "Fehler", "details": "Bitte schreibe zuerst eine Nachricht an den Bot oder in deine Telegram-Gruppe, damit er die Chat-ID registrieren kann!"}), 400
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
     text = (
@@ -40,7 +45,7 @@ def run_scan():
     }
     
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": active_chat_id,
         "text": text,
         "parse_mode": "Markdown",
         "reply_markup": reply_markup
@@ -55,11 +60,15 @@ def run_scan():
 
 @app.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
 def telegram_webhook():
+    global active_chat_id
     data = request.get_json()
     if not data:
         return jsonify({"status": "no data"}), 200
 
-    if "callback_query" in data:
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        active_chat_id = str(chat_id)
+    elif "callback_query" in data:
         query = data["callback_query"]
         query_id = query["id"]
         action = query["data"]
