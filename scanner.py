@@ -1,4 +1,3 @@
-
 import os
 import requests
 from flask import Flask, request, jsonify
@@ -20,6 +19,7 @@ def run_scan():
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
+    # Telefonnummer als Code-Block `069 12345678` zum perfekten einzeln Antippen & Kopieren
     text = (
         f"🕒 **Online seit:** 24.10.2026, 21:43 Uhr\n"
         f"🔥 **-15,4% unter Zielpreis!**\n"
@@ -31,11 +31,10 @@ def run_scan():
         f"📐 75 QM\n"
         f"🔨 Renovierungsbedürftig: Ja\n"
         f"👤 Anbieter: Privat\n"
-        f"📞 069 12345678\n\n"
+        f"📞 `069 12345678`\n\n"
         f"🔗 [Direktlink zum Angebot](https://www.immobilienscout24.de)"
     )
     
-    # Initiale Buttons (alle noch ohne Haken)
     reply_markup = {
         "inline_keyboard": [
             [
@@ -85,7 +84,6 @@ def telegram_webhook():
         original_text = message.get("text", "")
         current_markup = message.get("reply_markup", {}).get("inline_keyboard", [])
 
-        # Prüfen, welcher Button aktuell welchen Haken hat
         is_angerufen = False
         is_besichtigung = False
         is_favorit = False
@@ -100,22 +98,20 @@ def telegram_webhook():
                 if cb == "toggle_favorit" and "✅" in txt: is_favorit = True
                 if cb == "toggle_abgelehnt" and "✅" in txt: is_abgelehnt = True
 
-        # Geklickten Button umschalten (Togglen)
         if action == "toggle_angerufen":
             is_angerufen = not is_angerufen
-            if is_angerufen: is_abgelehnt = False # Wer angerufen/favorisiert, lehnt in der Regel nicht gleichzeitig ab
+            if is_angerufen: is_abgelehnt = False
         elif action == "toggle_besichtigung":
             is_besichtigung = not is_besichtigung
         elif action == "toggle_favorit":
             is_favorit = not is_favorit
         elif action == "toggle_abgelehnt":
             is_abgelehnt = not is_abgelehnt
-            if is_abgelehnt: # Wenn abgelehnt wird, kann man andere active States zurücksetzen (optional)
+            if is_abgelehnt:
                 is_angerufen = False
                 is_besichtigung = False
                 is_favorit = False
 
-        # Neue Button-Texte generieren
         b_angerufen = "✅ Angerufen" if is_angerufen else "📞 Angerufen"
         b_besichtigung = "✅ Besichtigung" if is_besichtigung else "👀 Besichtigung"
         b_favorit = "✅ Favorit" if is_favorit else "⭐ Favorit"
@@ -134,7 +130,6 @@ def telegram_webhook():
             ]
         }
 
-        # Status-Text für oben zusammenbauen
         active_statuses = []
         if is_angerufen: active_statuses.append("📞 Angerufen")
         if is_besichtigung: active_statuses.append("👀 Besichtigung")
@@ -143,7 +138,6 @@ def telegram_webhook():
 
         status_str = ", ".join(active_statuses) if active_statuses else "Noch offen"
 
-        # Nachrichtentext bereinigen und neuen Status einfügen
         lines = original_text.split("\n")
         updated_lines = []
         
@@ -159,7 +153,6 @@ def telegram_webhook():
 
         updated_text = "\n".join(updated_lines)
 
-        # Nachricht aktualisieren
         edit_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
         requests.post(edit_url, json={
             "chat_id": chat_id,
