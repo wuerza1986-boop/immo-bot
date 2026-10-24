@@ -7,8 +7,9 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-  token = os.environ.get("TELEGRAM_BOT_TOKEN")
-  chat_id = os.environ.get("TELEGRAM_GROUP_ID")
+  # .strip() entfernt automatisch versehentliche Leerzeichen oder Zeilenumbrüche!
+  token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+  chat_id = os.environ.get("TELEGRAM_GROUP_ID", "").strip()
 
   if not token or not chat_id:
     return (
