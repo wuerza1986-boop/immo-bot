@@ -4,20 +4,18 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Config
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8322651200:AAHTVpUjCVUFk2PiAGItb_hhlaKtMB5Tuf0")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-10023456789") # Deine Gruppen/Chat ID
+# Fester Token und Chat-ID für den Sofort-Test
+TELEGRAM_BOT_TOKEN = "8322651200:AAHTVpUjCVUFk2PiAGItb_hhlaKtMB5Tuf0"
+TELEGRAM_CHAT_ID = "-10023456789" # Deine Chat/Gruppen-ID
 
 @app.route("/", methods=["GET", "POST"])
 def home():
     return "Immo Scraper is active!", 200
 
-# Sofort-Scan Endpunkt
 @app.route("/scan", methods=["GET"])
 def run_scan():
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
-    # Beispiel-Deal zum direkten Testen der Anzeige und Buttons
     text = (
         f"🚨 **IMMO DEAL GEFUNDEN!** 🚨\n\n"
         f"📍 **Stadt:** Frankfurt am Main\n"
@@ -55,7 +53,6 @@ def run_scan():
     else:
         return jsonify({"status": "Fehler beim Senden", "details": response.text}), 500
 
-# Telegram Webhook Callback Handler
 @app.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
 def telegram_webhook():
     data = request.get_json()
