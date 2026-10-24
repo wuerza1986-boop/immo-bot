@@ -19,7 +19,7 @@ def run_scan():
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
-    # Telefonnummer als Code-Block `069 12345678` zum perfekten einzeln Antippen & Kopieren
+    # Telefonnummer komplett freistehend mit Leerzeilen davor und danach für perfekte Erkennung
     text = (
         f"🕒 **Online seit:** 24.10.2026, 21:43 Uhr\n"
         f"🔥 **-15,4% unter Zielpreis!**\n"
@@ -30,8 +30,8 @@ def run_scan():
         f"🚪 3 Zimmer Wohnung\n"
         f"📐 75 QM\n"
         f"🔨 Renovierungsbedürftig: Ja\n"
-        f"👤 Anbieter: Privat\n"
-        f"📞 `069 12345678`\n\n"
+        f"👤 Anbieter: Privat\n\n"
+        f"📞 06912345678\n\n"
         f"🔗 [Direktlink zum Angebot](https://www.immobilienscout24.de)"
     )
     
