@@ -8,7 +8,8 @@ app = Flask(__name__)
 @app.route("/")
 def home():
   # Direkt hartcodiert zum Testen:
-  token = "8322651200:AAEo1XuXZF5webGi1EW1tWSRnKk6bcx61c"
+  token = "8322651200:AAHTVpUjCVUFk2PiAGItb_hhlaKtMB5Tuf0"
+
   chat_id = "-1004495350584"
 
   url = f"https://api.telegram.org/bot{token}/sendMessage"
