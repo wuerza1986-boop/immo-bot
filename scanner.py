@@ -19,8 +19,9 @@ def run_scan():
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
-    # Layout mit prozentualer Abweichung als Top-Überschrift
+    # Layout inklusive Veröffentlichungsdatum/-zeit ganz oben
     text = (
+        f"🕒 **Online seit:** 24.10.2026, 21:40 Uhr\n"
         f"🔥 **-15,4% unter Zielpreis!**\n"
         f"🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
         f"📍 Frankfurt Griesheim\n"
