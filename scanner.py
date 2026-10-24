@@ -19,17 +19,18 @@ def run_scan():
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
-    # Exaktes Layout nach deinen Vorgaben
+    # Layout mit prozentualer Abweichung als Top-Überschrift
     text = (
-        f"Frankfurt ( Ziel QMP 2600€ )\n"
-        f"Frankfurt Griesheim\n"
-        f"200.000€ ( QMP 2200€ )\n"
-        f"3 Zimmer Wohnung\n"
-        f"75 QM\n"
-        f"Renovierungsbedürftig ja\n"
-        f"Anbieter: Privat\n"
-        f"Kontaktdaten: [069 12345678](tel:+496912345678)\n\n"
-        f"[Direktlink zum Angebot](https://www.immobilienscout24.de)"
+        f"🔥 **-15,4% unter Zielpreis!**\n"
+        f"🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
+        f"📍 Frankfurt Griesheim\n"
+        f"💰 200.000€ (QMP: 2200€)\n"
+        f"🚪 3 Zimmer Wohnung\n"
+        f"📐 75 QM\n"
+        f"🔨 Renovierungsbedürftig: Ja\n"
+        f"👤 Anbieter: Privat\n"
+        f"📞 069 12345678\n\n"
+        f"🔗 [Direktlink zum Angebot](https://www.immobilienscout24.de)"
     )
     
     reply_markup = {
