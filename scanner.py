@@ -15,32 +15,32 @@ def home():
 def run_scan():
     global last_chat_id
     if not last_chat_id:
-        return jsonify({"status": "Fehler", "details": "Keine Chat-ID vorhanden! Schreibe bitte zuerst eine Nachricht an den Bot oder in die Gruppe."}), 400
+        return jsonify({"status": "Fehler", "details": "Keine Chat-ID vorhanden! Schreibe bitte zuerst eine Nachricht in deine Gruppe."}), 400
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
+    # Exaktes Layout nach deinen Vorgaben
     text = (
-        f"🚨 **IMMO DEAL GEFUNDEN!** 🚨\n\n"
-        f"📍 **Stadt / QM Zielpreis:** Frankfurt am Main / 3.000 €/m²\n"
-        f"💰 **Preis / QM Preis / -%:** 240.000 € / 2.526 €/m² / -15,8%\n"
-        f"📐 **Quadratmeter:** 95 m²\n"
-        f"🚪 **Zimmeranzahl:** 3 Zimmer\n"
-        f"🏢 **Makler:** Ja\n"
-        f"🔨 **Renovierungsbedürftig:** Nein\n"
-        f"👤 **Kontaktdaten:** Immobilien Meyer GmbH\n"
-        f"📞 **Telefonnummer:** [069 12345678](tel:+496912345678)\n\n"
-        f"🔗 [Direktlink aufs Angebot](https://www.immobilienscout24.de)"
+        f"Frankfurt ( Ziel QMP 2600€ )\n"
+        f"Frankfurt Griesheim\n"
+        f"200.000€ ( QMP 2200€ )\n"
+        f"3 Zimmer Wohnung\n"
+        f"75 QM\n"
+        f"Renovierungsbedürftig ja\n"
+        f"Anbieter: Privat\n"
+        f"Kontaktdaten: [069 12345678](tel:+496912345678)\n\n"
+        f"[Direktlink zum Angebot](https://www.immobilienscout24.de)"
     )
     
     reply_markup = {
         "inline_keyboard": [
             [
-                {"text": "📞 Angerufen", "callback_data": "status_angerufen"},
-                {"text": "👁️ Besichtigung", "callback_data": "status_besichtigung"}
+                {"text": "Angerufen", "callback_data": "status_angerufen"},
+                {"text": "Besichtigung", "callback_data": "status_besichtigung"}
             ],
             [
-                {"text": "⭐ Favorit", "callback_data": "status_favorit"},
-                {"text": "❌ Abgelehnt", "callback_data": "status_abgelehnt"}
+                {"text": "Favorit", "callback_data": "status_favorit"},
+                {"text": "Abgelehnt", "callback_data": "status_abgelehnt"}
             ]
         ]
     }
@@ -49,6 +49,7 @@ def run_scan():
         "chat_id": last_chat_id,
         "text": text,
         "parse_mode": "Markdown",
+        "disable_web_page_preview": True,
         "reply_markup": reply_markup
     }
     
@@ -81,13 +82,13 @@ def telegram_webhook():
 
         status_text = ""
         if action == "status_angerufen":
-            status_text = "\n\n📌 **Status:** 📞 Angerufen"
+            status_text = "\n\n📌 Status: Angerufen"
         elif action == "status_besichtigung":
-            status_text = "\n\n📌 **Status:** 👁️ Besichtigung vereinbart"
+            status_text = "\n\n📌 Status: Besichtigung"
         elif action == "status_favorit":
-            status_text = "\n\n📌 **Status:** ⭐ Favorit"
+            status_text = "\n\n📌 Status: Favorit"
         elif action == "status_abgelehnt":
-            status_text = "\n\n📌 **Status:** ❌ Abgelehnt"
+            status_text = "\n\n📌 Status: Abgelehnt"
 
         updated_text = original_text + status_text
 
@@ -96,7 +97,8 @@ def telegram_webhook():
             "chat_id": chat_id,
             "message_id": message_id,
             "text": updated_text,
-            "parse_mode": "Markdown"
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
         })
 
         answer_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
