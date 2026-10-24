@@ -19,7 +19,6 @@ def run_scan():
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
-    # Vollständiges Layout mit Datum ganz oben
     text = (
         f"🕒 **Online seit:** 24.10.2026, 21:43 Uhr\n"
         f"🔥 **-15,4% unter Zielpreis!**\n"
