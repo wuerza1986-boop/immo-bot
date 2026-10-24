@@ -4,9 +4,9 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Fester Token und Chat-ID für den Sofort-Test
+# Fester Token und deine Gruppen-ID
 TELEGRAM_BOT_TOKEN = "8322651200:AAHTVpUjCVUFk2PiAGItb_hhlaKtMB5Tuf0"
-TELEGRAM_CHAT_ID = "-10023456789" # Deine Chat/Gruppen-ID
+TELEGRAM_CHAT_ID = "-10023456789"  # Falls deine Gruppe eine andere ID hat, hier anpassen
 
 @app.route("/", methods=["GET", "POST"])
 def home():
