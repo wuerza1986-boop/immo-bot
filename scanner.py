@@ -1,173 +1,108 @@
 import os
-import requests
+import math
+import sqlite3
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-TELEGRAM_BOT_TOKEN = "8322651200:AAHTVpUjCVUFk2PiAGItb_hhlaKtMB5Tuf0"
-last_chat_id = None
+# --- DATENBANK-SETUP ---
+def init_db():
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    # 1. Tabelle für deine FIXEN Anker-Städte (Nur manuell durch dich veränderbar)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS anker_staedte (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stadt TEXT UNIQUE NOT NULL,
+            ziel_qmp REAL NOT NULL,      -- Dein fester Wunsch-Quadratmeterpreis (Heilig!)
+            markt_qmp REAL NOT NULL,     -- Offizieller Marktpreis der Ankerstadt zum Zeitpunkt der Definition
+            lat REAL NOT NULL,
+            lon REAL NOT NULL
+        )
+    ''')
+    
+    # 2. Tabelle für die offiziellen Marktpreise aller Orte, Dörfer & Städte im Umland
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ort_marktpreise (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ort TEXT UNIQUE NOT NULL,
+            aktueeller_markt_qmp REAL NOT NULL,
+            lat REAL NOT NULL,
+            lon REAL NOT NULL
+        )
+    ''')
+    
+    # Initiale 8 Anker-Städte eintragen (Falls noch nicht vorhanden)
+    initial_ankers = [
+        ("Hanau", 1800, 2200, 50.1328, 8.9169),
+        ("Dietzenbach", 1750, 2150, 50.0086, 8.7758),
+        ("Offenbach", 2300, 2950, 50.1055, 8.7662),
+        ("Frankfurt", 2600, 3200, 50.1109, 8.6821),
+        ("Oberursel", 2750, 5500, 50.2014, 8.5739),
+        ("Bad Homburg", 2750, 5200, 50.2268, 8.6181),
+        ("Steinbach", 2750, 4800, 50.1681, 8.5714),
+        ("Langen", 1900, 2400, 49.9889, 8.6631)
+    ]
+    
+    for stadt, ziel, markt, lat, lon in initial_ankers:
+        cursor.execute('''
+            INSERT OR IGNORE INTO anker_staedte (stadt, ziel_qmp, markt_qmp, lat, lon)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (stadt, ziel, markt, lat, lon))
+        
+    conn.commit()
+    conn.close()
+
+# Datenbank beim Start initialisieren
+init_db()
+
+def berechne_entfernung(lat1, lon1, lat2, lon2):
+    """Berechnet die Distanz in km zwischen zwei Koordinaten."""
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    return 6371 * c
 
 @app.route("/", methods=["GET", "POST"])
 def home():
-    return f"Immo Scraper active! Letzte erkannte Chat-ID: {last_chat_id}", 200
+    return "Deal Hunter Anker-System is active and running!"
 
-@app.route("/scan", methods=["GET"])
-def run_scan():
-    global last_chat_id
-    if not last_chat_id:
-        return jsonify({"status": "Fehler", "details": "Keine Chat-ID vorhanden! Schreibe bitte zuerst eine Nachricht in deine Gruppe."}), 400
-
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+# API: Anker-Städte abrufen
+@app.route('/api/anker', methods=['GET'])
+def get_ankers():
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, stadt, ziel_qmp, markt_qmp FROM anker_staedte")
+    rows = cursor.fetchall()
+    conn.close()
     
-    # Telefonnummer komplett freistehend mit Leerzeilen davor und danach für perfekte Erkennung
-    text = (
-        f"🕒 **Online seit:** 24.10.2026, 21:43 Uhr\n"
-        f"🔥 **-15,4% unter Zielpreis!**\n"
-        f"📌 **Status:** Noch offen\n"
-        f"🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
-        f"📍 Frankfurt Griesheim\n"
-        f"💰 200.000€ (QMP: 2200€)\n"
-        f"🚪 3 Zimmer Wohnung\n"
-        f"📐 75 QM\n"
-        f"🔨 Renovierungsbedürftig: Ja\n"
-        f"👤 Anbieter: Privat\n\n"
-        f"📞 06912345678\n\n"
-        f"🔗 [Direktlink zum Angebot](https://www.immobilienscout24.de)"
-    )
-    
-    reply_markup = {
-        "inline_keyboard": [
-            [
-                {"text": "📞 Angerufen", "callback_data": "toggle_angerufen"},
-                {"text": "👀 Besichtigung", "callback_data": "toggle_besichtigung"}
-            ],
-            [
-                {"text": "⭐ Favorit", "callback_data": "toggle_favorit"},
-                {"text": "❌ Abgelehnt", "callback_data": "toggle_abgelehnt"}
-            ]
-        ]
-    }
-    
-    payload = {
-        "chat_id": last_chat_id,
-        "text": text,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True,
-        "reply_markup": reply_markup
-    }
-    
-    response = requests.post(url, json=payload)
-    
-    if response.status_code == 200:
-        return jsonify({"status": "Test-Deal erfolgreich gesendet!"}), 200
-    else:
-        return jsonify({"status": "Fehler beim Senden", "details": response.text}), 500
-
-@app.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
-def telegram_webhook():
-    global last_chat_id
-    data = request.get_json()
-    if not data:
-        return jsonify({"status": "no data"}), 200
-
-    if "message" in data:
-        chat = data["message"]["chat"]
-        last_chat_id = str(chat["id"])
-    elif "callback_query" in data:
-        query = data["callback_query"]
-        query_id = query["id"]
-        action = query["data"]
-        message = query["message"]
-        chat_id = message["chat"]["id"]
-        message_id = message["message_id"]
-        last_chat_id = str(chat_id)
-        original_text = message.get("text", "")
-        current_markup = message.get("reply_markup", {}).get("inline_keyboard", [])
-
-        is_angerufen = False
-        is_besichtigung = False
-        is_favorit = False
-        is_abgelehnt = False
-
-        for row in current_markup:
-            for btn in row:
-                cb = btn["callback_data"]
-                txt = btn["text"]
-                if cb == "toggle_angerufen" and "✅" in txt: is_angerufen = True
-                if cb == "toggle_besichtigung" and "✅" in txt: is_besichtigung = True
-                if cb == "toggle_favorit" and "✅" in txt: is_favorit = True
-                if cb == "toggle_abgelehnt" and "✅" in txt: is_abgelehnt = True
-
-        if action == "toggle_angerufen":
-            is_angerufen = not is_angerufen
-            if is_angerufen: is_abgelehnt = False
-        elif action == "toggle_besichtigung":
-            is_besichtigung = not is_besichtigung
-        elif action == "toggle_favorit":
-            is_favorit = not is_favorit
-        elif action == "toggle_abgelehnt":
-            is_abgelehnt = not is_abgelehnt
-            if is_abgelehnt:
-                is_angerufen = False
-                is_besichtigung = False
-                is_favorit = False
-
-        b_angerufen = "✅ Angerufen" if is_angerufen else "📞 Angerufen"
-        b_besichtigung = "✅ Besichtigung" if is_besichtigung else "👀 Besichtigung"
-        b_favorit = "✅ Favorit" if is_favorit else "⭐ Favorit"
-        b_abgelehnt = "✅ Abgelehnt" if is_abgelehnt else "❌ Abgelehnt"
-
-        new_reply_markup = {
-            "inline_keyboard": [
-                [
-                    {"text": b_angerufen, "callback_data": "toggle_angerufen"},
-                    {"text": b_besichtigung, "callback_data": "toggle_besichtigung"}
-                ],
-                [
-                    {"text": b_favorit, "callback_data": "toggle_favorit"},
-                    {"text": b_abgelehnt, "callback_data": "toggle_abgelehnt"}
-                ]
-            ]
-        }
-
-        active_statuses = []
-        if is_angerufen: active_statuses.append("📞 Angerufen")
-        if is_besichtigung: active_statuses.append("👀 Besichtigung")
-        if is_favorit: active_statuses.append("⭐ Favorit")
-        if is_abgelehnt: active_statuses.append("❌ Abgelehnt")
-
-        status_str = ", ".join(active_statuses) if active_statuses else "Noch offen"
-
-        lines = original_text.split("\n")
-        updated_lines = []
-        
-        for line in lines:
-            if "Status:" in line:
-                continue
-            updated_lines.append(line)
-            
-        if len(updated_lines) > 1:
-            updated_lines.insert(2, f"📌 **Status:** {status_str}")
-        else:
-            updated_lines.append(f"📌 **Status:** {status_str}")
-
-        updated_text = "\n".join(updated_lines)
-
-        edit_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
-        requests.post(edit_url, json={
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": updated_text,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True,
-            "reply_markup": new_reply_markup
+    ankers = []
+    for r in rows:
+        rabatt = ((r[2] - r[3]) / r[3]) * 100
+        ankers.append({
+            "id": r[0],
+            "stadt": r[1],
+            "ziel_qmp": r[2],
+            "markt_qmp": r[3],
+            "rabatt_prozent": round(rabatt, 1)
         })
+    return jsonify(ankers)
 
-        answer_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
-        requests.post(answer_url, json={"callback_query_id": query_id, "text": f"Status aktualisiert: {status_str}"})
-
-    return jsonify({"status": "ok"}), 200
+# API: Anker-Wert manuell aktualisieren
+@app.route('/api/anker/<int:anker_id>', methods=['PUT'])
+def update_anker(anker_id):
+    data = request.json
+    neuer_ziel_qmp = data.get('ziel_qmp')
+    
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE anker_staedte SET ziel_qmp = ? WHERE id = ?", (neuer_ziel_qmp, anker_id))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"status": "success", "message": "Anker erfolgreich aktualisiert!"})
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
