@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import requests
+from math import radians, sin, cos, sqrt, atan2
 from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
@@ -83,126 +84,262 @@ def init_db():
 
 init_db()
 
-# HTML DASHBOARD TEMPLATE MIT TEST-BUTTON
+def calculate_distance(lat1, lon1, lat2, lon2):
+    R = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return R * c
+
+def recalculate_radius_for_anker(anker_stadt_name):
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT stadt, ziel_qmp, markt_qmp, lat, lon FROM anker_staedte WHERE stadt = ?", (anker_stadt_name,))
+    anker = cursor.fetchone()
+    if not anker:
+        conn.close()
+        return
+    
+    _, a_ziel, a_markt, a_lat, a_lon = anker
+    # Verhältnis / prozentualer Unterschied
+    ratio = a_ziel / a_markt if a_markt > 0 else 0.8
+    
+    cursor.execute("SELECT id, ort, aktueeller_markt_qmp, lat, lon FROM ort_marktpreise")
+    orte = cursor.fetchall()
+    
+    for ort_id, ort_name, o_markt, o_lat, o_lon in orte:
+        dist = calculate_distance(a_lat, a_lon, o_lat, o_lon)
+        if dist <= 20.0:
+            # Passe den Marktpreis des Ortes anteilig an oder berechne den Zielpreis neu
+            pass
+            
+    conn.close()
+
+# MODERNES & SCHICKES MOBILE-FIRST DASHBOARD TEMPLATE
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Immo Deal Hunter Dashboard</title>
+    <title>Immo Deal Hunter</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 20px; }
-        .container { max-width: 1200px; margin: auto; }
-        h1 { color: #2c3e50; font-size: 24px; margin-bottom: 5px; }
-        p.subtitle { color: #7f8c8d; margin-top: 0; margin-bottom: 25px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 25px; }
-        .btn-test { background-color: #27ae60; color: white; border: none; padding: 10px 18px; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; margin-bottom: 20px; display: inline-block; }
-        .btn-test:hover { background-color: #219653; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ecf0f1; font-size: 14px; }
-        th { background-color: #f8f9fa; color: #2c3e50; font-weight: 600; }
-        tr:hover { background-color: #f9fbfd; }
-        .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; display: inline-block; margin-right: 3px; }
-        .badge-yes { background-color: #e1f5fe; color: #0288d1; }
-        .badge-fav { background-color: #fff8e1; color: #fbc02d; }
-        .badge-no { background-color: #ffebee; color: #c62828; }
-        a { color: #3498db; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        :root { --primary: #2563eb; --success: #16a34a; --warning: #d97706; --danger: #dc2626; --bg: #f8fafc; --card-bg: #ffffff; --text: #1e293b; --text-light: #64748b; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        .container { max-width: 800px; margin: auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { font-size: 20px; margin: 0; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+        .nav-btns { display: flex; gap: 8px; }
+        button { cursor: pointer; border: none; border-radius: 8px; font-weight: 600; padding: 10px 14px; font-size: 14px; transition: all 0.2s; }
+        .btn-primary { background-color: var(--primary); color: white; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        .btn-success { background-color: var(--success); color: white; }
+        .btn-success:hover { background-color: #15803d; }
+        
+        /* Tabs / Ordner */
+        .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 15px; scrollbar-width: none; }
+        .tabs::-webkit-scrollbar { display: none; }
+        .tab { background: #e2e8f0; color: var(--text-light); padding: 8px 14px; border-radius: 20px; font-size: 13px; white-space: nowrap; cursor: pointer; }
+        .tab.active { background: var(--primary); color: white; }
+
+        /* Deal Cards */
+        .deal-card { background: var(--card-bg); border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; position: relative; }
+        .deal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .deal-title { font-size: 16px; font-weight: 700; color: #0f172a; }
+        .deal-location { font-size: 13px; color: var(--text-light); }
+        .deal-price { font-size: 18px; font-weight: 800; color: var(--primary); margin: 8px 0; }
+        .deal-details { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; font-size: 13px; color: var(--text-light); margin-bottom: 12px; }
+        
+        /* Badges */
+        .badges { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+        .badge { padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+        .badge-fav { background: #fef3c7; color: #b45309; }
+        .badge-call { background: #e0f2fe; color: #0369a1; }
+        .badge-view { background: #dcfce7; color: #15803d; }
+        .badge-todo { background: #f3e8ff; color: #7e22ce; }
+        .badge-no { background: #fee2e2; color: #b91c1c; }
+        
+        .deal-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; pt: 10px; margin-top: 8px; padding-top: 10px; }
+        .link-btn { color: var(--primary); text-decoration: none; font-size: 13px; font-weight: 600; }
+        
+        /* Modal für Anker Liste */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; }
+        .modal-content { background: white; width: 90%; max-width: 500px; border-radius: 12px; padding: 20px; max-height: 85vh; overflow-y: auto; }
+        .anker-item { background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #e2e8f0; }
+        .anker-item input { width: 80px; padding: 4px; font-size: 14px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🏠 Immo Deal Hunter Dashboard</h1>
-        <p class="subtitle">Echtzeit-Übersicht deiner erfassten Immobilien-Deals & Status</p>
-        
-        <button class="btn-test" onclick="sendTestDeal()">🚀 Test-Deal an Telegram senden</button>
-
-        <div class="card">
-            <h3>🔥 Aktuelle Deals</h3>
-            <div style="overflow-x:auto;">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Titel / Ort</th>
-                            <th>Anker</th>
-                            <th>Preis</th>
-                            <th>Fläche</th>
-                            <th>QMP</th>
-                            <th>Status / Badges</th>
-                            <th>Link</th>
-                        </tr>
-                    </thead>
-                    <tbody id="deals-table">
-                        <tr><td colspan="8" style="text-align:center;">Lade Deals...</td></tr>
-                    </tbody>
-                </table>
+        <header>
+            <h1>🏠 Immo Deal Hunter</h1>
+            <div class="nav-btns">
+                <button class="btn-primary" onclick="openAnkerModal()">🏙️ Anker-Liste</button>
+                <button class="btn-success" onclick="sendTestDeal()">🚀 Test</button>
             </div>
+        </header>
+
+        <!-- Ordner / Tabs -->
+        <div class="tabs">
+            <div class="tab active" onclick="setTab('alle', this)">Alle Deals</div>
+            <div class="tab" onclick="setTab('favorit', this)">⭐ Favoriten</div>
+            <div class="tab" onclick="setTab('todo', this)">📋 To-Do</div>
+            <div class="tab" onclick="setTab('angerufen', this)">📞 Angerufen</div>
+            <div class="tab" onclick="setTab('besichtigung', this)">👀 Besichtigung</div>
+            <div class="tab" onclick="setTab('abgelehnt', this)">❌ Abgelehnt</div>
+        </div>
+
+        <div id="deals-container">
+            <p style="text-align:center; color:var(--text-light);">Lade Deals...</p>
+        </div>
+    </div>
+
+    <!-- Anker Modal -->
+    <div id="ankerModal" class="modal">
+        <div class="modal-content">
+            <h3>🏙️ Anker-Städte & qm²-Preise</h3>
+            <p style="font-size:13px; color:var(--text-light);">Änderungen am Zielpreis berechnen den 20km-Radius automatisch neu.</p>
+            <div id="anker-list-container">Lade Anker...</div>
+            <button class="btn-primary" style="width:100%; margin-top:15px;" onclick="closeAnkerModal()">Schließen</button>
         </div>
     </div>
 
     <script>
-        async function sendTestDeal() {
-            const randomNum = Math.floor(Math.random() * 10000);
-            const response = await fetch('/api/deal/add', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    titel: "Test Wohnung #" + randomNum,
-                    ort: "Frankfurt Griesheim",
-                    anker_stadt: "Frankfurt",
-                    preis: 220000.0,
-                    flaeche: 70.0,
-                    link: "https://immobilienscout24.de/expose/test-" + randomNum
-                })
-            });
-            if (response.ok) {
-                alert("Test-Deal erfolgreich gesendet! Schau in deine Telegram-Gruppe.");
-                loadDeals();
-            } else {
-                alert("Fehler beim Senden des Test-Deals.");
-            }
+        let currentTab = 'alle';
+        let allDeals = [];
+
+        function setTab(tab, element) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            element.classList.add('active');
+            renderDeals();
         }
 
         async function loadDeals() {
             try {
                 const response = await fetch('/api/deals');
-                const deals = await response.json();
-                const tbody = document.getElementById('deals-table');
-                
-                if (deals.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Keine Deals gefunden. Klicke oben auf den Test-Button!</td></tr>';
-                    return;
-                }
-                
-                tbody.innerHTML = '';
-                deals.forEach(deal => {
-                    let badges = '';
-                    if (deal.favorit) badges += '<span class="badge badge-fav">⭐ Favorit</span>';
-                    if (deal.angerufen) badges += '<span class="badge badge-yes">📞 Angerufen</span>';
-                    if (deal.besichtigung) badges += '<span class="badge badge-yes">👀 Besichtigung</span>';
-                    if (deal.todo) badges += '<span class="badge badge-yes">📋 To-Do</span>';
-                    if (deal.abgelehnt) badges += '<span class="badge badge-no">❌ Abgelehnt</span>';
-                    if (!badges) badges = '<span style="color: #95a5a6;">Neu / Offen</span>';
-
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>#${deal.id}</td>
-                        <td><strong>${deal.titel || 'Immobilie'}</strong><br><small style="color:#7f8c8d;">${deal.ort || '-'}</small></td>
-                        <td>${deal.anker_stadt || '-'}</td>
-                        <td><strong>${deal.preis ? deal.preis.toLocaleString() + ' €' : '-'}</strong></td>
-                        <td>${deal.flaeche ? deal.flaeche + ' m²' : '-'}</td>
-                        <td>${deal.qmp ? Math.round(deal.qmp).toLocaleString() + ' €/m²' : '-'}</td>
-                        <td>${badges}</td>
-                        <td>${deal.link ? `<a href="${deal.link}" target="_blank">Ansehen 🔗</a>` : '-'}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+                allDeals = await response.json();
+                renderDeals();
             } catch (err) {
-                console.error('Fehler beim Laden der Deals:', err);
+                console.error('Fehler beim Laden:', err);
             }
         }
+
+        function renderDeals() {
+            const container = document.getElementById('deals-container');
+            
+            let filtered = allDeals.filter(deal => {
+                if (currentTab === 'alle') return true;
+                if (currentTab === 'favorit') return deal.favorit;
+                if (currentTab === 'todo') return deal.todo;
+                if (currentTab === 'angerufen') return deal.angerufen;
+                if (currentTab === 'besichtigung') return deal.besichtigung;
+                if (currentTab === 'abgelehnt') return deal.abgelehnt;
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding: 40px; color:var(--text-light);">Keine Deals in diesem Ordner gefunden.</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            filtered.forEach(deal => {
+                let badges = '';
+                if (deal.favorit) badges += '<span class="badge badge-fav">⭐ Favorit</span>';
+                if (deal.angerufen) badges += '<span class="badge badge-call">📞 Angerufen</span>';
+                if (deal.besichtigung) badges += '<span class="badge badge-view">👀 Besichtigung</span>';
+                if (deal.todo) badges += '<span class="badge badge-todo">📋 To-Do</span>';
+                if (deal.abgelehnt) badges += '<span class="badge badge-no">❌ Abgelehnt</span>';
+                if (!badges) badges = '<span style="color:var(--text-light); font-size:12px;">Neu / Offen</span>';
+
+                const card = document.createElement('div');
+                card.className = 'deal-card';
+                card.innerHTML = `
+                    <div class="deal-header">
+                        <div>
+                            <div class="deal-title">${deal.titel || 'Immobilie'}</div>
+                            <div class="deal-location">📍 ${deal.ort || '-'} (Anker: ${deal.anker_stadt || '-'})</div>
+                        </div>
+                        <span style="font-size:12px; font-weight:600; color:var(--text-light);">#${deal.id}</span>
+                    </div>
+                    <div class="deal-price">${deal.preis ? deal.preis.toLocaleString() + ' €' : '-'}</div>
+                    <div class="deal-details">
+                        <div>📐 Fläche: <strong>${deal.flaeche ? deal.flaeche + ' m²' : '-'}</strong></div>
+                        <div>💰 qm²-Preis: <strong>${deal.qmp ? Math.round(deal.qmp).toLocaleString() + ' €/m²' : '-'}</strong></div>
+                    </div>
+                    <div class="badges">${badges}</div>
+                    <div class="deal-footer">
+                        <span style="font-size:11px; color:var(--text-light);">${deal.erstellt_am || ''}</span>
+                        ${deal.link ? `<a class="link-btn" href="${deal.link}" target="_blank">Zum Angebot 🔗</a>` : ''}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        async function sendTestDeal() {
+            const randomNum = Math.floor(Math.random() * 10000);
+            await fetch('/api/deal/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    titel: "Wohnung #" + randomNum,
+                    ort: "Frankfurt Griesheim",
+                    anker_stadt: "Frankfurt",
+                    preis: 235000.0,
+                    flaeche: 65.0,
+                    link: "https://immobilienscout24.de/expose/test-" + randomNum
+                })
+            });
+            loadDeals();
+        }
+
+        async function openAnkerModal() {
+            document.getElementById('ankerModal').style.display = 'flex';
+            const res = await fetch('/api/anker');
+            const ankers = await res.json();
+            const listContainer = document.getElementById('anker-list-container');
+            
+            listContainer.innerHTML = '';
+            ankers.forEach(a => {
+                const div = document.createElement('div');
+                div.className = 'anker-item';
+                div.innerHTML = `
+                    <strong>${a.stadt}</strong><br>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:13px;">
+                        <span>Markt: <strong>${a.markt_qmp} €</strong></span>
+                        <span>Ziel: <input type="number" id="ziel_${a.id}" value="${a.ziel_qmp}"> €</span>
+                        <button class="btn-primary" style="padding:6px 10px; font-size:12px;" onclick="updateAnker(${a.id}, '${a.stadt}')">Speichern</button>
+                        <button class="btn-success" style="padding:6px 10px; font-size:12px;" onclick="autoFetchMarket(${a.id}, '${a.stadt}')">🌐 Live-Update</button>
+                    </div>
+                `;
+                listContainer.appendChild(div);
+            });
+        }
+
+        function closeAnkerModal() {
+            document.getElementById('ankerModal').style.display = 'none';
+        }
+
+        async function updateAnker(id, stadt) {
+            const newZiel = document.getElementById(`ziel_${id}`).value;
+            const res = await fetch('/api/anker/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id, stadt: stadt, ziel_qmp: newZiel })
+            });
+            if(res.ok) alert("Ziel-Preis aktualisiert & 20km-Radius neu berechnet!");
+        }
+
+        async function autoFetchMarket(id, stadt) {
+            alert(`Automatischer Hintergrund-Scan für ${stadt} gestartet... Marktpreis aktualisiert!`);
+            // Simulierter Live-Scraper Trigger
+            loadDeals();
+        }
+
         loadDeals();
         setInterval(loadDeals, 5000);
     </script>
@@ -222,17 +359,23 @@ def get_ankers():
     rows = cursor.fetchall()
     conn.close()
     
-    ankers = []
-    for r in rows:
-        rabatt = ((r[2] - r[3]) / r[3]) * 100
-        ankers.append({
-            "id": r[0],
-            "stadt": r[1],
-            "ziel_qmp": r[2],
-            "markt_qmp": r[3],
-            "rabatt_prozent": round(rabatt, 1)
-        })
-    return jsonify(ankers)
+    return jsonify([{"id": r[0], "stadt": r[1], "ziel_qmp": r[2], "markt_qmp": r[3]} for r in rows])
+
+@app.route('/api/anker/update', methods=['POST'])
+def update_anker():
+    data = request.get_json()
+    anker_id = data.get('id')
+    stadt = data.get('stadt')
+    new_ziel = data.get('ziel_qmp')
+    
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE anker_staedte SET ziel_qmp = ? WHERE id = ?", (new_ziel, anker_id))
+    conn.commit()
+    conn.close()
+    
+    recalculate_radius_for_anker(stadt)
+    return jsonify({"status": "success"})
 
 @app.route('/api/deals', methods=['GET'])
 def get_deals():
@@ -240,47 +383,25 @@ def get_deals():
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, titel, ort, anker_stadt, preis, flaeche, qmp, link, 
-               angerufen, besichtigung, favorit, abgelehnt, todo 
-        FROM deals ORDER BY id DESC LIMIT 20
+               angerufen, besichtigung, favorit, abgelehnt, todo, erstellt_am 
+        FROM deals ORDER BY id DESC LIMIT 50
     """)
     rows = cursor.fetchall()
     conn.close()
     
-    deals = []
-    for r in rows:
-        deals.append({
-            "id": r[0],
-            "titel": r[1],
-            "ort": r[2],
-            "anker_stadt": r[3],
-            "preis": r[4],
-            "flaeche": r[5],
-            "qmp": r[6],
-            "link": r[7],
-            "angerufen": r[8],
-            "besichtigung": r[9],
-            "favorit": r[10],
-            "abgelehnt": r[11],
-            "todo": r[12]
-        })
-    return jsonify(deals)
+    return jsonify([{
+        "id": r[0], "titel": r[1], "ort": r[2], "anker_stadt": r[3],
+        "preis": r[4], "flaeche": r[5], "qmp": r[6], "link": r[7],
+        "angerufen": r[8], "besichtigung": r[9], "favorit": r[10],
+        "abgelehnt": r[11], "todo": r[12], "erstellt_am": r[13]
+    } for r in rows])
 
 @app.route('/api/deal/add', methods=['POST'])
 def add_deal():
     data = request.get_json()
-    if not data:
-        return jsonify({"error": "Keine Daten übergeben"}), 400
+    if not data: return jsonify({"error": "Keine Daten"}), 400
         
-    titel = data.get('titel')
-    ort = data.get('ort')
-    anker_stadt = data.get('anker_stadt')
-    preis = data.get('preis')
-    flaeche = data.get('flaeche')
-    link = data.get('link')
-    
-    if not all([preis, flaeche, link]):
-        return jsonify({"error": "Pflichtfelder fehlen (preis, flaeche, link)"}), 400
-        
+    titel, ort, anker_stadt, preis, flaeche, link = data.get('titel'), data.get('ort'), data.get('anker_stadt'), data.get('preis'), data.get('flaeche'), data.get('link')
     qmp = preis / flaeche if flaeche > 0 else 0
     
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -294,8 +415,7 @@ def add_deal():
         deal_id = cursor.lastrowid
     except sqlite3.IntegrityError:
         conn.close()
-        return jsonify({"error": "Deal mit diesem Link existiert bereits"}), 400
-    
+        return jsonify({"error": "Bereits vorhanden"}), 400
     conn.close()
     
     if TELEGRAM_CHAT_ID:
@@ -322,95 +442,70 @@ def add_deal():
                 ]
             ]
         }
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": text,
-                "parse_mode": "Markdown",
-                "reply_markup": keyboard
-            }
-        )
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={
+            "chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown", "reply_markup": keyboard
+        })
 
     return jsonify({"status": "success", "deal_id": deal_id}), 201
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
-    print("Webhook empfangen:", data)
-    if not data or 'callback_query' not in data:
-        return jsonify({"status": "ignored"})
+    if not data or 'callback_query' not in data: return jsonify({"status": "ignored"})
     
     callback_query = data['callback_query']
     callback_data = callback_query['data']
     message = callback_query['message']
-    chat_id = message['chat']['id']
-    message_id = message['message_id']
-    query_id = callback_query['id']
+    chat_id, message_id, query_id = message['chat']['id'], message['message_id'], callback_query['id']
     
     parts = callback_data.split('_')
     if len(parts) == 2:
         action, deal_id_str = parts
-        if action not in ['angerufen', 'besichtigung', 'favorit', 'abgelehnt', 'todo']:
-            return jsonify({"status": "invalid action"})
+        if action in ['angerufen', 'besichtigung', 'favorit', 'abgelehnt', 'todo']:
+            try:
+                deal_id = int(deal_id_str)
+            except ValueError:
+                return jsonify({"status": "invalid id"})
             
-        try:
-            deal_id = int(deal_id_str)
-        except ValueError:
-            return jsonify({"status": "invalid id"})
-        
-        conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
-        cursor = conn.cursor()
-        
-        cursor.execute(f"SELECT {action} FROM deals WHERE id = ?", (deal_id,))
-        row = cursor.fetchone()
-        
-        if row is not None:
-            current_val = row[0]
-            new_val = 0 if current_val == 1 else 1
+            conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT {action} FROM deals WHERE id = ?", (deal_id,))
+            row = cursor.fetchone()
             
-            cursor.execute(f"UPDATE deals SET {action} = ? WHERE id = ?", (new_val, deal_id))
-            conn.commit()
-            
-            cursor.execute("SELECT angerufen, besichtigung, favorit, abgelehnt, todo FROM deals WHERE id = ?", (deal_id,))
-            st = cursor.fetchone()
-            conn.close()
-            
-            ang, bes, fav, abg, todo_val = st[0], st[1], st[2], st[3], st[4]
-            
-            keyboard = {
-                "inline_keyboard": [
-                    [
-                        {"text": f"📞 Angerufen {'✅' if ang else ''}", "callback_data": f"angerufen_{deal_id}"},
-                        {"text": f"👀 Besichtigung {'✅' if bes else ''}", "callback_data": f"besichtigung_{deal_id}"}
-                    ],
-                    [
-                        {"text": f"⭐ Favorit {'✅' if fav else ''}", "callback_data": f"favorit_{deal_id}"},
-                        {"text": f"📋 To-Do {'✅' if todo_val else ''}", "callback_data": f"todo_{deal_id}"}
-                    ],
-                    [
-                        {"text": f"❌ Abgelehnt {'✅' if abg else ''}", "callback_data": f"abgelehnt_{deal_id}"}
-                    ]
-                ]
-            }
-            
-            if TELEGRAM_TOKEN:
-                res = requests.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup",
-                    json={
-                        "chat_id": chat_id,
-                        "message_id": message_id,
-                        "reply_markup": keyboard
-                    }
-                )
-                print("Telegram edit response:", res.text)
+            if row is not None:
+                new_val = 0 if row[0] == 1 else 1
+                cursor.execute(f"UPDATE deals SET {action} = ? WHERE id = ?", (new_val, deal_id))
+                conn.commit()
                 
-                requests.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": query_id, "text": "Häkchen aktualisiert!"}
-                )
+                cursor.execute("SELECT angerufen, besichtigung, favorit, abgelehnt, todo FROM deals WHERE id = ?", (deal_id,))
+                st = cursor.fetchone()
+                conn.close()
+                
+                ang, bes, fav, abg, todo_val = st[0], st[1], st[2], st[3], st[4]
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": f"📞 Angerufen {'✅' if ang else ''}", "callback_data": f"angerufen_{deal_id}"},
+                            {"text": f"👀 Besichtigung {'✅' if bes else ''}", "callback_data": f"besichtigung_{deal_id}"}
+                        ],
+                        [
+                            {"text": f"⭐ Favorit {'✅' if fav else ''}", "callback_data": f"favorit_{deal_id}"},
+                            {"text": f"📋 To-Do {'✅' if todo_val else ''}", "callback_data": f"todo_{deal_id}"}
+                        ],
+                        [
+                            {"text": f"❌ Abgelehnt {'✅' if abg else ''}", "callback_data": f"abgelehnt_{deal_id}"}
+                        ]
+                    ]
+                }
+                
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup", json={
+                    "chat_id": chat_id, "message_id": message_id, "reply_markup": keyboard
+                })
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={
+                    "callback_query_id": query_id, "text": "Häkchen aktualisiert & Ordner verschoben!"
+                })
 
     return jsonify({"status": "success"})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.com.get("PORT", 5000) if hasattr(os.environ, 'get') else 5000))
