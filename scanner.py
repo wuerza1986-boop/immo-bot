@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # ==========================================
-# FESTE KONFIGURATION (Mit neuem, aktuellem Token)
+# FESTE KONFIGURATION (Aktueller Token & Gruppe)
 # ==========================================
 TELEGRAM_TOKEN = "8322651200:AAGmeU2XEF2frad2d9eVf2nMgEr2K8Ws7BQ"
 TELEGRAM_CHAT_ID = "-1004495350584"
