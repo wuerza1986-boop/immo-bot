@@ -32,6 +32,21 @@ def init_db():
             lon REAL NOT NULL
         )
     ''')
+
+    # 3. Tabelle für gefundene Immobilien-Deals
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS deals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titel TEXT,
+            ort TEXT,
+            anker_stadt TEXT,
+            preis REAL,
+            flaeche REAL,
+            qmp REAL,
+            link TEXT UNIQUE,
+            erstellt_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     
     # Initiale 8 Anker-Städte eintragen (Falls noch nicht vorhanden)
     initial_ankers = [
@@ -103,6 +118,28 @@ def update_anker(anker_id):
     conn.close()
     
     return jsonify({"status": "success", "message": "Anker erfolgreich aktualisiert!"})
+
+# API: Gefundene Deals für das Dashboard abrufen
+@app.route('/api/deals', methods=['GET'])
+def get_deals():
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT titel, ort, anker_stadt, preis, flaeche, qmp, link FROM deals ORDER BY id DESC LIMIT 20")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    deals = []
+    for r in rows:
+        deals.append({
+            "titel": r[0],
+            "ort": r[1],
+            "anker_stadt": r[2],
+            "preis": r[3],
+            "flaeche": r[4],
+            "qmp": r[5],
+            "link": r[6]
+        })
+    return jsonify(deals)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
