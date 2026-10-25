@@ -1,7 +1,6 @@
 import os
 import sqlite3
 import requests
-import re
 from math import radians, sin, cos, sqrt, atan2
 from flask import Flask, request, jsonify, render_template_string
 
@@ -49,6 +48,7 @@ def init_db():
             flaeche REAL,
             qmp REAL,
             link TEXT UNIQUE,
+            kontakt TEXT DEFAULT '',
             angerufen INTEGER DEFAULT 0,
             besichtigung INTEGER DEFAULT 0,
             favorit INTEGER DEFAULT 0,
@@ -60,6 +60,11 @@ def init_db():
     
     try:
         cursor.execute("ALTER TABLE deals ADD COLUMN todo INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE deals ADD COLUMN kontakt TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
     
@@ -101,41 +106,15 @@ def recalculate_radius_for_anker(anker_stadt_name):
     if not anker:
         conn.close()
         return
-    
-    _, a_ziel, a_markt, a_lat, a_lon = anker
-    cursor.execute("SELECT id, ort, aktueeller_markt_qmp, lat, lon FROM ort_marktpreise")
-    orte = cursor.fetchall()
-    
-    for ort_id, ort_name, o_markt, o_lat, o_lon in orte:
-        dist = calculate_distance(a_lat, a_lon, o_lat, o_lon)
-        if dist <= 20.0:
-            pass
-            
     conn.close()
 
-def fetch_live_market_price(stadt_name):
-    """Sucht nach aktuellen Marktpreisen/Quadratmeterpreisen für die Ankerstadt"""
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        url = f"https://www.google.com/search?q=quadratmeterpreis+immobilien+{stadt_name}"
-        res = requests.get(url, headers=headers, timeout=5)
-        
-        # Einfacher Fallback/Berechnungs-Simulationswert falls Blocker vorliegen
-        matches = re.findall(r'(\d[\d\.]*)\s*€\s*/?\s*m²', res.text)
-        if matches:
-            clean_val = float(matches[0].replace('.', ''))
-            if 1000 <= clean_val <= 15000:
-                return clean_val
-    except Exception as e:
-        print("Fehler beim Live-Fetch:", e)
-    
-    # Standard-Refreshed Fallback mit kleiner realistischer Aktualisierung
+def get_target_qmp_for_anker(anker_stadt_name):
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
-    cursor.execute("SELECT markt_qmp FROM anker_staedte WHERE stadt = ?", (stadt_name,))
-    curr = cursor.fetchone()
+    cursor.execute("SELECT ziel_qmp FROM anker_staedte WHERE stadt = ?", (anker_stadt_name,))
+    row = cursor.fetchone()
     conn.close()
-    return curr[0] if curr else 2500.0
+    return row[0] if row else 2500.0
 
 DASHBOARD_HTML = """
 <!DOCTYPE html>
@@ -178,6 +157,10 @@ DASHBOARD_HTML = """
         .badge-view { background: #dcfce7; color: #15803d; }
         .badge-todo { background: #f3e8ff; color: #7e22ce; }
         .badge-no { background: #fee2e2; color: #b91c1c; }
+        .badge-target { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+        .badge-above { background: #fee2e2; color: #991b1b; }
+
+        .deal-contact { font-size: 12px; color: var(--text-light); background: #f1f5f9; padding: 6px 10px; border-radius: 6px; margin-bottom: 10px; }
         
         .deal-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; padding-top: 10px; margin-top: 8px; }
         .link-btn { color: var(--primary); text-decoration: none; font-size: 13px; font-weight: 600; }
@@ -185,7 +168,7 @@ DASHBOARD_HTML = """
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; }
         .modal-content { background: white; width: 90%; max-width: 500px; border-radius: 12px; padding: 20px; max-height: 85vh; overflow-y: auto; }
         .anker-item { background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #e2e8f0; }
-        .anker-item input { width: 80px; padding: 4px; font-size: 14px; }
+        .anker-item input { width: 75px; padding: 4px; font-size: 13px; }
     </style>
 </head>
 <body>
@@ -215,7 +198,7 @@ DASHBOARD_HTML = """
     <div id="ankerModal" class="modal">
         <div class="modal-content">
             <h3>🏙️ Anker-Städte & qm²-Preise</h3>
-            <p style="font-size:13px; color:var(--text-light);">Änderungen am Zielpreis berechnen den 20km-Radius automatisch neu.</p>
+            <p style="font-size:13px; color:var(--text-light);">Passe Markt- und Zielpreise direkt an.</p>
             <div id="anker-list-container">Lade Anker...</div>
             <button class="btn-primary" style="width:100%; margin-top:15px;" onclick="closeAnkerModal()">Schließen</button>
         </div>
@@ -263,12 +246,18 @@ DASHBOARD_HTML = """
             container.innerHTML = '';
             filtered.forEach(deal => {
                 let badges = '';
+                if (deal.diff_percent !== undefined) {
+                    if (deal.diff_percent <= 0) {
+                        badges += `<span class="badge badge-target">🎯 ${Math.abs(deal.diff_percent)}% unter Ziel</span>`;
+                    } else {
+                        badges += `<span class="badge badge-above">📈 +${deal.diff_percent}% über Ziel</span>`;
+                    }
+                }
                 if (deal.favorit) badges += '<span class="badge badge-fav">⭐ Favorit</span>';
                 if (deal.angerufen) badges += '<span class="badge badge-call">📞 Angerufen</span>';
                 if (deal.besichtigung) badges += '<span class="badge badge-view">👀 Besichtigung</span>';
                 if (deal.todo) badges += '<span class="badge badge-todo">📋 To-Do</span>';
                 if (deal.abgelehnt) badges += '<span class="badge badge-no">❌ Abgelehnt</span>';
-                if (!badges) badges = '<span style="color:var(--text-light); font-size:12px;">Neu / Offen</span>';
 
                 const card = document.createElement('div');
                 card.className = 'deal-card';
@@ -288,6 +277,7 @@ DASHBOARD_HTML = """
                         <div>📐 Fläche: <strong>${deal.flaeche ? deal.flaeche + ' m²' : '-'}</strong></div>
                         <div>💰 qm²-Preis: <strong>${deal.qmp ? Math.round(deal.qmp).toLocaleString() + ' €/m²' : '-'}</strong></div>
                     </div>
+                    ${deal.kontakt ? `<div class="deal-contact">👤 Kontakt: <strong>${deal.kontakt}</strong></div>` : ''}
                     <div class="badges">${badges}</div>
                     <div class="deal-footer">
                         <span style="font-size:11px; color:var(--text-light);">${deal.erstellt_am || ''}</span>
@@ -318,8 +308,9 @@ DASHBOARD_HTML = """
                     titel: "Wohnung #" + randomNum,
                     ort: "Frankfurt Griesheim",
                     anker_stadt: "Frankfurt",
-                    preis: 235000.0,
+                    preis: 175000.0,
                     flaeche: 65.0,
+                    kontakt: "Herr Mustermann (0170-1234567)",
                     link: "https://immobilienscout24.de/expose/test-" + randomNum
                 })
             });
@@ -343,10 +334,9 @@ DASHBOARD_HTML = """
                 div.innerHTML = `
                     <strong>${a.stadt}</strong><br>
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:13px;">
-                        <span>Markt: <strong>${a.markt_qmp.toLocaleString()} €</strong></span>
+                        <span>Markt: <input type="number" id="markt_${a.id}" value="${a.markt_qmp}"> €</span>
                         <span>Ziel: <input type="number" id="ziel_${a.id}" value="${a.ziel_qmp}"> €</span>
                         <button class="btn-primary" style="padding:6px 10px; font-size:12px;" onclick="updateAnker(${a.id}, '${a.stadt}')">Speichern</button>
-                        <button class="btn-success" style="padding:6px 10px; font-size:12px;" onclick="autoFetchMarket(${a.id}, '${a.stadt}')">🌐 Live-Update</button>
                     </div>
                 `;
                 listContainer.appendChild(div);
@@ -358,26 +348,14 @@ DASHBOARD_HTML = """
         }
 
         async function updateAnker(id, stadt) {
+            const newMarkt = document.getElementById(`markt_${id}`).value;
             const newZiel = document.getElementById(`ziel_${id}`).value;
             const res = await fetch('/api/anker/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: id, stadt: stadt, ziel_qmp: newZiel })
+                body: JSON.stringify({ id: id, stadt: stadt, markt_qmp: newMarkt, ziel_qmp: newZiel })
             });
-            if(res.ok) alert("Ziel-Preis aktualisiert & 20km-Radius neu berechnet!");
-        }
-
-        async function autoFetchMarket(id, stadt) {
-            const res = await fetch('/api/anker/fetch_market', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: id, stadt: stadt })
-            });
-            const data = await res.json();
-            if(res.ok) {
-                alert(`Neuer Marktpreis für ${stadt} ermittelt: ${data.neuer_markt_qmp} €/m²!`);
-                refreshAnkerUI();
-            }
+            if(res.ok) alert("Anker-Preise erfolgreich aktualisiert!");
         }
 
         loadDeals();
@@ -403,32 +381,19 @@ def get_ankers():
 @app.route('/api/anker/update', methods=['POST'])
 def update_anker():
     data = request.get_json()
-    anker_id, stadt, new_ziel = data.get('id'), data.get('stadt'), data.get('ziel_qmp')
+    anker_id = data.get('id')
+    stadt = data.get('stadt')
+    newMarkt = data.get('markt_qmp')
+    newZiel = data.get('ziel_qmp')
     
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
-    cursor.execute("UPDATE anker_staedte SET ziel_qmp = ? WHERE id = ?", (new_ziel, anker_id))
+    cursor.execute("UPDATE anker_staedte SET markt_qmp = ?, ziel_qmp = ? WHERE id = ?", (newMarkt, newZiel, anker_id))
     conn.commit()
     conn.close()
     
     recalculate_radius_for_anker(stadt)
     return jsonify({"status": "success"})
-
-@app.route('/api/anker/fetch_market', methods=['POST'])
-def fetch_market_endpoint():
-    data = request.get_json()
-    anker_id, stadt = data.get('id'), data.get('stadt')
-    
-    new_market_price = fetch_live_market_price(stadt)
-    
-    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE anker_staedte SET markt_qmp = ? WHERE id = ?", (new_market_price, anker_id))
-    conn.commit()
-    conn.close()
-    
-    recalculate_radius_for_anker(stadt)
-    return jsonify({"status": "success", "neuer_markt_qmp": new_market_price})
 
 @app.route('/api/deals', methods=['GET'])
 def get_deals():
@@ -436,18 +401,31 @@ def get_deals():
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, titel, ort, anker_stadt, preis, flaeche, qmp, link, 
-               angerufen, besichtigung, favorit, abgelehnt, todo, erstellt_am 
+               angerufen, besichtigung, favorit, abgelehnt, todo, erstellt_am, kontakt 
         FROM deals ORDER BY id DESC LIMIT 50
     """)
     rows = cursor.fetchall()
     conn.close()
     
-    return jsonify([{
-        "id": r[0], "titel": r[1], "ort": r[2], "anker_stadt": r[3],
-        "preis": r[4], "flaeche": r[5], "qmp": r[6], "link": r[7],
-        "angerufen": r[8], "besichtigung": r[9], "favorit": r[10],
-        "abgelehnt": r[11], "todo": r[12], "erstellt_am": r[13]
-    } for r in rows])
+    deals_list = []
+    for r in rows:
+        anker_stadt = r[3]
+        qmp = r[6]
+        ziel_qmp = get_target_qmp_for_anker(anker_stadt)
+        
+        diff_percent = 0
+        if ziel_qmp > 0 and qmp > 0:
+            diff_percent = round(((qmp - ziel_qmp) / ziel_qmp) * 100, 1)
+
+        deals_list.append({
+            "id": r[0], "titel": r[1], "ort": r[2], "anker_stadt": r[3],
+            "preis": r[4], "flaeche": r[5], "qmp": r[6], "link": r[7],
+            "angerufen": r[8], "besichtigung": r[9], "favorit": r[10],
+            "abgelehnt": r[11], "todo": r[12], "erstellt_am": r[13], "kontakt": r[14],
+            "ziel_qmp": ziel_qmp, "diff_percent": diff_percent
+        })
+        
+    return jsonify(deals_list)
 
 @app.route('/api/deal/delete', methods=['POST'])
 def delete_deal():
@@ -467,16 +445,23 @@ def add_deal():
     data = request.get_json()
     if not data: return jsonify({"error": "Keine Daten"}), 400
         
-    titel, ort, anker_stadt, preis, flaeche, link = data.get('titel'), data.get('ort'), data.get('anker_stadt'), data.get('preis'), data.get('flaeche'), data.get('link')
+    titel, ort, anker_stadt, preis, flaeche, link, kontakt = (
+        data.get('titel'), data.get('ort'), data.get('anker_stadt'),
+        data.get('preis'), data.get('flaeche'), data.get('link'), data.get('kontakt', '')
+    )
     qmp = preis / flaeche if flaeche > 0 else 0
+    ziel_qmp = get_target_qmp_for_anker(anker_stadt)
     
+    diff_percent = round(((qmp - ziel_qmp) / ziel_qmp) * 100, 1) if ziel_qmp > 0 else 0
+    diff_str = f"🎯 {abs(diff_percent)}% unter Zielpreis!" if diff_percent <= 0 else f"📈 +{diff_percent}% über Zielpreis"
+
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (titel, ort, anker_stadt, preis, flaeche, qmp, link))
+            INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt))
         conn.commit()
         deal_id = cursor.lastrowid
     except sqlite3.IntegrityError:
@@ -490,7 +475,9 @@ def add_deal():
             f"🏙️ Anker: {anker_stadt}\n"
             f"📍 Ort: {ort}\n"
             f"💰 Preis: {preis:,.2f}€ (QMP: {qmp:,.2f}€)\n"
+            f"🎯 Ziel-QMP: {ziel_qmp:,.2f}€ ({diff_str})\n"
             f"📐 Fläche: {flaeche} m²\n"
+            f"{f'👤 Kontakt: {kontakt}' if kontakt else ''}\n"
             f"🔗 [Zum Angebot]({link})"
         )
         keyboard = {
