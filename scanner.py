@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify, render_template
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 def init_db():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -132,6 +133,60 @@ def get_deals():
             "todo": r[12]
         })
     return jsonify(deals)
+
+@app.route('/test-deal', methods=['GET'])
+def send_test_deal():
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return jsonify({"status": "error", "message": "TELEGRAM_TOKEN oder TELEGRAM_CHAT_ID fehlt in Render Environment Variables!"})
+    
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', ("3 Zimmer Test Wohnung mit To-Do", "Frankfurt Griesheim", "Frankfurt", 200000.0, 75.0, 2666.0, "https://immobilienscout24.de/test"))
+        conn.commit()
+        deal_id = cursor.lastrowid
+    except sqlite3.IntegrityError:
+        cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/test'")
+        deal_id = cursor.fetchone()[0]
+    conn.close()
+    
+    text = (
+        "🔥 **NEUER TEST-DEAL (Mit To-Do)** 🔥\n"
+        "🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
+        "📍 Frankfurt Griesheim\n"
+        "💰 200.000€ (QMP: 2.666€)\n"
+        "🚪 3 Zimmer Wohnung\n"
+        "📐 75 QM\n"
+    )
+    
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"},
+                {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}
+            ],
+            [
+                {"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"},
+                {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}
+            ],
+            [
+                {"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}
+            ]
+        ]
+    }
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown",
+        "reply_markup": keyboard
+    }
+    resp = requests.post(url, json=payload)
+    return jsonify(resp.json())
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
