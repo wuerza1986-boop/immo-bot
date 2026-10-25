@@ -178,7 +178,7 @@ DASHBOARD_HTML = """
             }
         }
         loadDeals();
-        setInterval(loadDeals, 5000); // Alle 5 Sekunden automatisch aktualisieren
+        setInterval(loadDeals, 5000);
     </script>
 </body>
 </html>
@@ -335,7 +335,6 @@ def telegram_webhook():
         conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
         cursor = conn.cursor()
         
-        # Aktuellen Wert auslesen
         cursor.execute(f"SELECT {action} FROM deals WHERE id = ?", (deal_id,))
         row = cursor.fetchone()
         
@@ -343,22 +342,15 @@ def telegram_webhook():
             current_val = row[0]
             new_val = 0 if current_val == 1 else 1
             
-            # Wert umschalten und speichern
             cursor.execute(f"UPDATE deals SET {action} = ? WHERE id = ?", (new_val, deal_id))
             conn.commit()
             
-            # Alle Status-Werte für die Buttons abrufen
             cursor.execute("SELECT angerufen, besichtigung, favorit, abgelehnt, todo FROM deals WHERE id = ?", (deal_id,))
             st = cursor.fetchone()
             conn.close()
             
-            ang = st[0]
-            bes = st[1]
-            fav = st[2]
-            abg = st[3]
-            todo_val = st[4]
+            ang, bes, fav, abg, todo_val = st[0], st[1], st[2], st[3], st[4]
             
-            # Tastatur mit aktualisierten Häkchen zusammenbauen
             keyboard = {
                 "inline_keyboard": [
                     [
@@ -376,7 +368,6 @@ def telegram_webhook():
             }
             
             if TELEGRAM_TOKEN:
-                # Buttons in Telegram aktualisieren
                 requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup",
                     json={
@@ -385,10 +376,9 @@ def telegram_webhook():
                         "reply_markup": keyboard
                     }
                 )
-                # Klick-Bestätigung an Telegram senden
                 requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": query_id, "text": "Status aktualisiert & in App synchronisiert!"}
+                    json={"callback_query_id": query_id, "text": "Häkchen aktualisiert!"}
                 )
 
     return jsonify({"status": "success"})
