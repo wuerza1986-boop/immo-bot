@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import requests
+from datetime import datetime
 from math import radians, sin, cos, sqrt, atan2
 from flask import Flask, request, jsonify, render_template_string
 
@@ -90,24 +91,6 @@ def init_db():
 
 init_db()
 
-def calculate_distance(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-    a = sin(dlat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return R * c
-
-def recalculate_radius_for_anker(anker_stadt_name):
-    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT stadt, ziel_qmp, markt_qmp, lat, lon FROM anker_staedte WHERE stadt = ?", (anker_stadt_name,))
-    anker = cursor.fetchone()
-    if not anker:
-        conn.close()
-        return
-    conn.close()
-
 def get_target_qmp_for_anker(anker_stadt_name):
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
@@ -162,8 +145,8 @@ DASHBOARD_HTML = """
 
         .deal-contact { font-size: 12px; color: var(--text-light); background: #f1f5f9; padding: 6px 10px; border-radius: 6px; margin-bottom: 10px; }
         
-        .deal-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; padding-top: 10px; margin-top: 8px; }
-        .link-btn { color: var(--primary); text-decoration: none; font-size: 13px; font-weight: 600; }
+        .deal-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; padding-top: 10px; margin-top: 8px; font-size: 12px; color: var(--text-light); }
+        .link-btn { color: var(--primary); text-decoration: none; font-weight: 600; }
         
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; }
         .modal-content { background: white; width: 90%; max-width: 500px; border-radius: 12px; padding: 20px; max-height: 85vh; overflow-y: auto; }
@@ -280,7 +263,7 @@ DASHBOARD_HTML = """
                     ${deal.kontakt ? `<div class="deal-contact">👤 Kontakt: <strong>${deal.kontakt}</strong></div>` : ''}
                     <div class="badges">${badges}</div>
                     <div class="deal-footer">
-                        <span style="font-size:11px; color:var(--text-light);">${deal.erstellt_am || ''}</span>
+                        <span>📅 Erstellt am: <strong>${deal.erstellt_am || '-'}</strong></span>
                         ${deal.link ? `<a class="link-btn" href="${deal.link}" target="_blank">Zum Angebot 🔗</a>` : ''}
                     </div>
                 `;
@@ -391,8 +374,6 @@ def update_anker():
     cursor.execute("UPDATE anker_staedte SET markt_qmp = ?, ziel_qmp = ? WHERE id = ?", (newMarkt, newZiel, anker_id))
     conn.commit()
     conn.close()
-    
-    recalculate_radius_for_anker(stadt)
     return jsonify({"status": "success"})
 
 @app.route('/api/deals', methods=['GET'])
@@ -454,14 +435,15 @@ def add_deal():
     
     diff_percent = round(((qmp - ziel_qmp) / ziel_qmp) * 100, 1) if ziel_qmp > 0 else 0
     diff_str = f"🎯 {abs(diff_percent)}% unter Zielpreis!" if diff_percent <= 0 else f"📈 +{diff_percent}% über Zielpreis"
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt))
+            INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, erstellt_am)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, current_time))
         conn.commit()
         deal_id = cursor.lastrowid
     except sqlite3.IntegrityError:
@@ -478,6 +460,7 @@ def add_deal():
             f"🎯 Ziel-QMP: {ziel_qmp:,.2f}€ ({diff_str})\n"
             f"📐 Fläche: {flaeche} m²\n"
             f"{f'👤 Kontakt: {kontakt}' if kontakt else ''}\n"
+            f"📅 Erstellt am: {current_time}\n"
             f"🔗 [Zum Angebot]({link})"
         )
         keyboard = {
@@ -542,7 +525,7 @@ def telegram_webhook():
                             {"text": f"👀 Besichtigung {'✅' if bes else ''}", "callback_data": f"besichtigung_{deal_id}"}
                         ],
                         [
-                            {"text": f"⭐ Favorit {'✅' if fav else ''}", "callback_data": f"favorit_{deal_id}"},
+                            {"text": f"⭐ Favorit {'✅' if fav::self}" if False else f"⭐ Favorit {'✅' if fav else ''}", "callback_data": f"favorit_{deal_id}"},
                             {"text": f"📋 To-Do {'✅' if todo_val else ''}", "callback_data": f"todo_{deal_id}"}
                         ],
                         [
@@ -554,7 +537,7 @@ def telegram_webhook():
                 requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup", json={
                     "chat_id": chat_id, "message_id": message_id, "reply_markup": keyboard
                 })
-                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={
+                requests.post(f"https://api.telegram.ow/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={
                     "callback_query_id": query_id, "text": "Häkchen aktualisiert & Ordner verschoben!"
                 })
 
