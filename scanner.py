@@ -83,7 +83,7 @@ def init_db():
 
 init_db()
 
-# HTML DASHBOARD TEMPLATE
+# HTML DASHBOARD TEMPLATE MIT TEST-BUTTON
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html lang="de">
@@ -97,6 +97,8 @@ DASHBOARD_HTML = """
         h1 { color: #2c3e50; font-size: 24px; margin-bottom: 5px; }
         p.subtitle { color: #7f8c8d; margin-top: 0; margin-bottom: 25px; }
         .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 25px; }
+        .btn-test { background-color: #27ae60; color: white; border: none; padding: 10px 18px; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; margin-bottom: 20px; display: inline-block; }
+        .btn-test:hover { background-color: #219653; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ecf0f1; font-size: 14px; }
         th { background-color: #f8f9fa; color: #2c3e50; font-weight: 600; }
@@ -114,6 +116,8 @@ DASHBOARD_HTML = """
         <h1>🏠 Immo Deal Hunter Dashboard</h1>
         <p class="subtitle">Echtzeit-Übersicht deiner erfassten Immobilien-Deals & Status</p>
         
+        <button class="btn-test" onclick="sendTestDeal()">🚀 Test-Deal an Telegram senden</button>
+
         <div class="card">
             <h3>🔥 Aktuelle Deals</h3>
             <div style="overflow-x:auto;">
@@ -139,6 +143,28 @@ DASHBOARD_HTML = """
     </div>
 
     <script>
+        async function sendTestDeal() {
+            const randomNum = Math.floor(Math.random() * 10000);
+            const response = await fetch('/api/deal/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    titel: "Test Wohnung #" + randomNum,
+                    ort: "Frankfurt Griesheim",
+                    anker_stadt: "Frankfurt",
+                    preis: 220000.0,
+                    flaeche: 70.0,
+                    link: "https://immobilienscout24.de/expose/test-" + randomNum
+                })
+            });
+            if (response.ok) {
+                alert("Test-Deal erfolgreich gesendet! Schau in deine Telegram-Gruppe.");
+                loadDeals();
+            } else {
+                alert("Fehler beim Senden des Test-Deals.");
+            }
+        }
+
         async function loadDeals() {
             try {
                 const response = await fetch('/api/deals');
@@ -146,7 +172,7 @@ DASHBOARD_HTML = """
                 const tbody = document.getElementById('deals-table');
                 
                 if (deals.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Keine Deals gefunden.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Keine Deals gefunden. Klicke oben auf den Test-Button!</td></tr>';
                     return;
                 }
                 
