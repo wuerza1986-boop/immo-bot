@@ -6,15 +6,15 @@ from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
 
-# Telegram Bot Token aus Umgebungsvariablen holen
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+# Trage hier deine Telegram-Gruppen-ID ein (falls bekannt), sonst schickt er es an den Admin/Chat
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # --- DATENBANK-SETUP ---
 def init_db():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
     
-    # 1. Tabelle für deine FIXEN Anker-Städte
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS anker_staedte (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,7 +26,6 @@ def init_db():
         )
     ''')
     
-    # 2. Tabelle für Marktpreise
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ort_marktpreise (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +36,6 @@ def init_db():
         )
     ''')
 
-    # 3. Tabelle für Deals mit allen Status-Spalten (inkl. todo)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS deals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,13 +55,11 @@ def init_db():
         )
     ''')
     
-    # Falls die Tabelle schon existierte, fügen wir die Spalte 'todo' falls nötig per ALTER TABLE hinzu
     try:
         cursor.execute("ALTER TABLE deals ADD COLUMN todo INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
-        pass # Spalte existiert bereits
+        pass
     
-    # Initiale 8 Anker-Städte eintragen
     initial_ankers = [
         ("Hanau", 1800, 2200, 50.1328, 8.9169),
         ("Dietzenbach", 1750, 2150, 50.0086, 8.7758),
@@ -90,7 +86,6 @@ init_db()
 def home():
     return render_template("index.html")
 
-# API: Anker-Städte abrufen
 @app.route('/api/anker', methods=['GET'])
 def get_ankers():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -111,7 +106,6 @@ def get_ankers():
         })
     return jsonify(ankers)
 
-# API: Anker-Wert aktualisieren
 @app.route('/api/anker/<int:anker_id>', methods=['PUT'])
 def update_anker(anker_id):
     data = request.json
@@ -125,7 +119,6 @@ def update_anker(anker_id):
     
     return jsonify({"status": "success", "message": "Anker erfolgreich aktualisiert!"})
 
-# API: Deals abrufen (inklusive To-Do Status)
 @app.route('/api/deals', methods=['GET'])
 def get_deals():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -157,7 +150,66 @@ def get_deals():
         })
     return jsonify(deals)
 
-# TELEGRAM WEBHOOK: Verarbeitet Button-Klicks (inkl. To-Do)
+# Test-Route, um manuell einen Test-Deal in Telegram zu posten
+@app.route('/test-deal', methods=['GET'])
+def send_test_deal():
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return jsonify({"status": "error", "message": "TELEGRAM_TOKEN oder TELEGRAM_CHAT_ID fehlt in den Environment Variables!"})
+    
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    # Test-Deal in DB speichern
+    try:
+        cursor.execute('''
+            INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', ("3 Zimmer Test Wohnung mit To-Do", "Frankfurt Griesheim", "Frankfurt", 200000.0, 75.0, 2666.0, "https://immobilienscout24.de/test"))
+        conn.commit()
+        deal_id = cursor.lastrowid
+    except sqlite3.IntegrityError:
+        cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/test'")
+        deal_id = cursor.fetchone()[0]
+    
+    conn.close()
+    
+    # Nachricht an Telegram senden mit den 5 neuen Buttons
+    text = (
+        "🔥 **NEUER TEST-DEAL (Mit To-Do)** 🔥\n"
+        "🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
+        "📍 Frankfurt Griesheim\n"
+        "💰 200.000€ (QMP: 2.666€)\n"
+        "🚪 3 Zimmer Wohnung\n"
+        "📐 75 QM\n"
+    )
+    
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"},
+                {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}
+            ],
+            [
+                {"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"},
+                {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}
+            ],
+            [
+                {"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}
+            ]
+        ]
+    }
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown",
+        "reply_markup": keyboard
+    }
+    
+    resp = requests.post(url, json=payload)
+    return jsonify(resp.json())
+
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
@@ -165,7 +217,7 @@ def telegram_webhook():
         return jsonify({"status": "ignored"})
     
     callback_query = data['callback_query']
-    callback_data = callback_query['data']  # z.B. "todo_12" oder "favorit_12"
+    callback_data = callback_query['data']
     message = callback_query['message']
     chat_id = message['chat']['id']
     message_id = message['message_id']
@@ -174,7 +226,6 @@ def telegram_webhook():
     parts = callback_data.split('_')
     if len(parts) == 2:
         action, deal_id_str = parts
-        # Sicherheitsprüfung, ob die Aktion erlaubt ist
         if action not in ['angerufen', 'besichtigung', 'favorit', 'abgelehnt', 'todo']:
             return jsonify({"status": "invalid action"})
             
@@ -186,26 +237,22 @@ def telegram_webhook():
         conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
         cursor = conn.cursor()
         
-        # Aktuellen Status aus der DB holen
         cursor.execute(f"SELECT {action} FROM deals WHERE id = ?", (deal_id,))
         row = cursor.fetchone()
         
         if row is not None:
             current_val = row[0]
-            new_val = 0 if current_val == 1 else 1  # Umschalten (Toggle)
+            new_val = 0 if current_val == 1 else 1
             
-            # In DB speichern
             cursor.execute(f"UPDATE deals SET {action} = ? WHERE id = ?", (new_val, deal_id))
             conn.commit()
             
-            # Alle Statuswerte für die Buttons neu laden
             cursor.execute("SELECT angerufen, besichtigung, favorit, abgelehnt, todo FROM deals WHERE id = ?", (deal_id,))
             st = cursor.fetchone()
             conn.close()
             
             ang, bes, fav, abg, todo_val = st
             
-            # Schönes Tastatur-Layout mit 5 Buttons (2 oben, 2 mitte, 1 unten)
             keyboard = {
                 "inline_keyboard": [
                     [
@@ -222,7 +269,6 @@ def telegram_webhook():
                 ]
             }
             
-            # Nachricht bei Telegram aktualisieren
             if TELEGRAM_TOKEN:
                 requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup",
@@ -234,7 +280,7 @@ def telegram_webhook():
                 )
                 requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": query_id, "text": "To-Do Status aktualisiert!" if action=='todo' else "Status aktualisiert!"}
+                    json={"callback_query_id": query_id, "text": "Status aktualisiert!"}
                 )
 
     return jsonify({"status": "success"})
