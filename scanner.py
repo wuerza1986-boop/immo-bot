@@ -5,9 +5,11 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Frischer, sicherer Token und feste Chat-ID
-TELEGRAM_TOKEN = "8322651200:AAGmeU2XEF2frad2d9eVf2nMgEr2K8Ws7BQ"
-TELEGRAM_CHAT_ID = "-100..." # Trage hier deine echte Gruppen-Chat-ID ein (z.B. -100xxxxxxxxxx)
+def get_config():
+    # Holt Token und Chat-ID automatisch aus den Render Environment Variables
+    token = os.environ.get("TELEGRAM_TOKEN", "8322651200:AAGmeU2XEF2frad2d9eVf2nMgEr2K8Ws7BQ")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    return token, chat_id
 
 def init_db():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -82,7 +84,14 @@ init_db()
 
 @app.route("/", methods=["GET"])
 def home():
-    chat_id = TELEGRAM_CHAT_ID
+    token, chat_id = get_config()
+    
+    # Automatischer Hilfsmodus: Wenn keine Chat-ID hinterlegt ist, fragt er direkt bei Telegram nach den letzten Updates,
+    # damit du deine Gruppen-ID sofort auf dem Bildschirm siehst!
+    if not chat_id:
+        url = f"https://api.telegram.org/bot{token}/getUpdates"
+        resp = requests.post(url).json()
+        return f"⚠️ TELEGRAM_CHAT_ID fehlt in Render! Hier sind die aktuellen Telegram-Updates (suche nach 'chat':{{'id':-100...}}):<br><br>{resp}"
     
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
@@ -124,7 +133,7 @@ def home():
         ]
     }
     
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -188,6 +197,7 @@ def get_deals():
 
 @app.route('/api/deal/add', methods=['POST'])
 def add_deal():
+    token, chat_id = get_config()
     data = request.get_json()
     if not data:
         return jsonify({"error": "Keine Daten übergeben"}), 400
@@ -219,7 +229,6 @@ def add_deal():
     
     conn.close()
     
-    chat_id = TELEGRAM_CHAT_ID
     if chat_id:
         text = (
             f"🔥 **NEUER DEAL GEFUNDEN** 🔥\n"
@@ -245,7 +254,7 @@ def add_deal():
             ]
         }
         requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            f"https://api.telegram.org/bot{token}/sendMessage",
             json={
                 "chat_id": chat_id,
                 "text": text,
@@ -258,6 +267,7 @@ def add_deal():
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
+    token, _ = get_config()
     data = request.get_json()
     if not data or 'callback_query' not in data:
         return jsonify({"status": "ignored"})
@@ -268,8 +278,6 @@ def telegram_webhook():
     chat_id = message['chat']['id']
     message_id = message['message_id']
     query_id = callback_query['id']
-    
-    token = TELEGRAM_TOKEN
     
     parts = callback_data.split('_')
     if len(parts) == 2:
