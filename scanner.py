@@ -6,7 +6,6 @@ from flask import Flask, request, jsonify, render_template
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 def init_db():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -134,132 +133,138 @@ def get_deals():
         })
     return jsonify(deals)
 
-@app.route('/test-deal', methods=['GET'])
-def send_test_deal():
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return jsonify({"status": "error", "message": "TELEGRAM_TOKEN oder TELEGRAM_CHAT_ID fehlt in Render Environment Variables!"})
-    
-    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
-    cursor = conn.cursor()
-    try:
-        cursor.execute('''
-            INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', ("3 Zimmer Test Wohnung mit To-Do", "Frankfurt Griesheim", "Frankfurt", 200000.0, 75.0, 2666.0, "https://immobilienscout24.de/test"))
-        conn.commit()
-        deal_id = cursor.lastrowid
-    except sqlite3.IntegrityError:
-        cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/test'")
-        deal_id = cursor.fetchone()[0]
-    conn.close()
-    
-    text = (
-        "🔥 **NEUER TEST-DEAL (Mit To-Do)** 🔥\n"
-        "🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
-        "📍 Frankfurt Griesheim\n"
-        "💰 200.000€ (QMP: 2.666€)\n"
-        "🚪 3 Zimmer Wohnung\n"
-        "📐 75 QM\n"
-    )
-    
-    keyboard = {
-        "inline_keyboard": [
-            [
-                {"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"},
-                {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}
-            ],
-            [
-                {"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"},
-                {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}
-            ],
-            [
-                {"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}
-            ]
-        ]
-    }
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown",
-        "reply_markup": keyboard
-    }
-    resp = requests.post(url, json=payload)
-    return jsonify(resp.json())
-
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
-    if not data or 'callback_query' not in data:
+    if not data:
         return jsonify({"status": "ignored"})
     
-    callback_query = data['callback_query']
-    callback_data = callback_query['data']
-    message = callback_query['message']
-    chat_id = message['chat']['id']
-    message_id = message['message_id']
-    query_id = callback_query['id']
-    
-    parts = callback_data.split('_')
-    if len(parts) == 2:
-        action, deal_id_str = parts
-        if action not in ['angerufen', 'besichtigung', 'favorit', 'abgelehnt', 'todo']:
-            return jsonify({"status": "invalid action"})
-            
-        try:
-            deal_id = int(deal_id_str)
-        except ValueError:
-            return jsonify({"status": "invalid id"})
+    # 1. Fall: Jemand schreibt eine normale Nachricht in Telegram (z.B. /test)
+    if 'message' in data:
+        message = data['message']
+        chat_id = message['chat']['id']
+        text = message.get('text', '')
         
-        conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
-        cursor = conn.cursor()
-        
-        cursor.execute(f"SELECT {action} FROM deals WHERE id = ?", (deal_id,))
-        row = cursor.fetchone()
-        
-        if row is not None:
-            current_val = row[0]
-            new_val = 0 if current_val == 1 else 1
-            
-            cursor.execute(f"UPDATE deals SET {action} = ? WHERE id = ?", (new_val, deal_id))
-            conn.commit()
-            
-            cursor.execute("SELECT angerufen, besichtigung, favorit, abgelehnt, todo FROM deals WHERE id = ?", (deal_id,))
-            st = cursor.fetchone()
+        if text.strip() == '/test':
+            conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', ("3 Zimmer Test Wohnung mit To-Do", "Frankfurt Griesheim", "Frankfurt", 200000.0, 75.0, 2666.0, "https://immobilienscout24.de/test"))
+                conn.commit()
+                deal_id = cursor.lastrowid
+            except sqlite3.IntegrityError:
+                cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/test'")
+                deal_id = cursor.fetchone()[0]
             conn.close()
             
-            ang, bes, fav, abg, todo_val = st
+            deal_text = (
+                "🔥 **NEUER TEST-DEAL (Mit To-Do)** 🔥\n"
+                "🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
+                "📍 Frankfurt Griesheim\n"
+                "💰 200.000€ (QMP: 2.666€)\n"
+                "🚪 3 Zimmer Wohnung\n"
+                "📐 75 QM\n"
+            )
             
             keyboard = {
                 "inline_keyboard": [
                     [
-                        {"text": f"📞 Angerufen {'✅' if ang else ''}", "callback_data": f"angerufen_{deal_id}"},
-                        {"text": f"👀 Besichtigung {'✅' if bes else ''}", "callback_data": f"besichtigung_{deal_id}"}
+                        {"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"},
+                        {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}
                     ],
                     [
-                        {"text": f"⭐ Favorit {'✅' if fav else ''}", "callback_data": f"favorit_{deal_id}"},
-                        {"text": f"📋 To-Do {'✅' if todo_val else ''}", "callback_data": f"todo_{deal_id}"}
+                        {"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"},
+                        {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}
                     ],
                     [
-                        {"text": f"❌ Abgelehnt {'✅' if abg else ''}", "callback_data": f"abgelehnt_{deal_id}"}
+                        {"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}
                     ]
                 ]
             }
             
             if TELEGRAM_TOKEN:
                 requests.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup",
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
                     json={
                         "chat_id": chat_id,
-                        "message_id": message_id,
+                        "text": deal_text,
+                        "parse_mode": "Markdown",
                         "reply_markup": keyboard
                     }
                 )
-                requests.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": query_id, "text": "Status aktualisiert!"}
-                )
+        return jsonify({"status": "message processed"})
+
+    # 2. Fall: Jemand klickt auf einen Inline-Button
+    if 'callback_query' in data:
+        callback_query = data['callback_query']
+        callback_data = callback_query['data']
+        message = callback_query['message']
+        chat_id = message['chat']['id']
+        message_id = message['message_id']
+        query_id = callback_query['id']
+        
+        parts = callback_data.split('_')
+        if len(parts) == 2:
+            action, deal_id_str = parts
+            if action not in ['angerufen', 'besichtigung', 'favorit', 'abgelehnt', 'todo']:
+                return jsonify({"status": "invalid action"})
+                
+            try:
+                deal_id = int(deal_id_str)
+            except ValueError:
+                return jsonify({"status": "invalid id"})
+            
+            conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+            cursor = conn.cursor()
+            
+            cursor.execute(f"SELECT {action} FROM deals WHERE id = ?", (deal_id,))
+            row = cursor.fetchone()
+            
+            if row is not None:
+                current_val = row[0]
+                new_val = 0 if current_val == 1 else 1
+                
+                cursor.execute(f"UPDATE deals SET {action} = ? WHERE id = ?", (new_val, deal_id))
+                conn.commit()
+                
+                cursor.execute("SELECT angerufen, besichtigung, favorit, abgelehnt, todo FROM deals WHERE id = ?", (deal_id,))
+                st = cursor.fetchone()
+                conn.close()
+                
+                ang, bes, fav, abg, todo_val = st
+                
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": f"📞 Angerufen {'✅' if ang else ''}", "callback_data": f"angerufen_{deal_id}"},
+                            {"text": f"👀 Besichtigung {'✅' if bes else ''}", "callback_data": f"besichtigung_{deal_id}"}
+                        ],
+                        [
+                            {"text": f"⭐ Favorit {'✅' if fav else ''}", "callback_data": f"favorit_{deal_id}"},
+                            {"text": f"📋 To-Do {'✅' if todo_val else ''}", "callback_data": f"todo_{deal_id}"}
+                        ],
+                        [
+                            {"text": f"❌ Abgelehnt {'✅' if abg else ''}", "callback_data": f"abgelehnt_{deal_id}"}
+                        ]
+                    ]
+                }
+                
+                if TELEGRAM_TOKEN:
+                    requests.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup",
+                        json={
+                            "chat_id": chat_id,
+                            "message_id": message_id,
+                            "reply_markup": keyboard
+                        }
+                    )
+                    requests.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery",
+                        json={"callback_query_id": query_id, "text": "Status aktualisiert!"}
+                    )
 
     return jsonify({"status": "success"})
 
