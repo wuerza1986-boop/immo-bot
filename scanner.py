@@ -5,8 +5,9 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Token direkt fest hinterlegt
-TELEGRAM_TOKEN = "8322651200:AAHTvPujCVUFk2PiAGItb_hhlaKtMB5Tuf0"
+# Frischer, sicherer Token und feste Chat-ID
+TELEGRAM_TOKEN = "8322651200:AAGmeU2XEF2frad2d9eVf2nMgEr2K8Ws7BQ"
+TELEGRAM_CHAT_ID = "-100..." # Trage hier deine echte Gruppen-Chat-ID ein (z.B. -100xxxxxxxxxx)
 
 def init_db():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -81,11 +82,7 @@ init_db()
 
 @app.route("/", methods=["GET"])
 def home():
-    token = TELEGRAM_TOKEN
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-    
-    if not chat_id:
-        return "Fehler: TELEGRAM_CHAT_ID fehlt in den Render Environment Variables!"
+    chat_id = TELEGRAM_CHAT_ID
     
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
@@ -127,7 +124,7 @@ def home():
         ]
     }
     
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -222,7 +219,7 @@ def add_deal():
     
     conn.close()
     
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    chat_id = TELEGRAM_CHAT_ID
     if chat_id:
         text = (
             f"🔥 **NEUER DEAL GEFUNDEN** 🔥\n"
