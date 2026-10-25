@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import requests
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
@@ -79,9 +79,68 @@ def init_db():
 
 init_db()
 
-@app.route("/", methods=["GET", "POST"])
+# Schickt den Test-Deal direkt beim Hochfahren des Servers in die Gruppe
+def send_startup_test():
+    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', ("3 Zimmer Test Wohnung mit To-Do", "Frankfurt Griesheim", "Frankfurt", 200000.0, 75.0, 2666.0, "https://immobilienscout24.de/auto-start-test"))
+            conn.commit()
+            deal_id = cursor.lastrowid
+        except sqlite3.IntegrityError:
+            cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/auto-start-test'")
+            row = cursor.fetchone()
+            deal_id = row[0] if row else 1
+        conn.close()
+        
+        text = (
+            "🔥 **NEUER TEST-DEAL (Mit To-Do)** 🔥\n"
+            "🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
+            "📍 Frankfurt Griesheim\n"
+            "💰 200.000€ (QMP: 2.666€)\n"
+            "🚪 3 Zimmer Wohnung\n"
+            "📐 75 QM\n"
+        )
+        
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"},
+                    {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}
+                ],
+                [
+                    {"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"},
+                    {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}
+                ],
+                [
+                    {"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}
+                ]
+            ]
+        }
+        
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json={
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "text": text,
+                    "parse_mode": "Markdown",
+                    "reply_markup": keyboard
+                }
+            )
+        except Exception:
+            pass
+
+# Sofort beim Start ausführen
+send_startup_test()
+
+@app.route("/", methods=["GET"])
 def home():
-    return render_template("index.html")
+    return "Bot läuft und Test-Deal wurde beim Start gesendet!"
 
 @app.route('/api/anker', methods=['GET'])
 def get_ankers():
@@ -133,66 +192,6 @@ def get_deals():
             "todo": r[12]
         })
     return jsonify(deals)
-
-@app.route('/test-deal', methods=['GET'])
-def send_test_deal():
-    if not TELEGRAM_TOKEN:
-        return jsonify({"status": "error", "message": "TELEGRAM_TOKEN fehlt!"})
-    
-    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
-    cursor = conn.cursor()
-    try:
-        cursor.execute('''
-            INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', ("3 Zimmer Test Wohnung mit To-Do", "Frankfurt Griesheim", "Frankfurt", 200000.0, 75.0, 2666.0, "https://immobilienscout24.de/test-fix"))
-        conn.commit()
-        deal_id = cursor.lastrowid
-    except sqlite3.IntegrityError:
-        cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/test-fix'")
-        row = cursor.fetchone()
-        deal_id = row[0] if row else 1
-    conn.close()
-    
-    # Versuche Chat-ID aus Request-Parametern oder Fallback zu Env-Variable
-    chat_id = request.args.get('chat_id', TELEGRAM_CHAT_ID)
-    if not chat_id:
-        return jsonify({"status": "error", "message": "Keine Chat-ID angegeben und TELEGRAM_CHAT_ID nicht gesetzt!"})
-
-    text = (
-        "🔥 **NEUER TEST-DEAL (Mit To-Do)** 🔥\n"
-        "🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
-        "📍 Frankfurt Griesheim\n"
-        "💰 200.000€ (QMP: 2.666€)\n"
-        "🚪 3 Zimmer Wohnung\n"
-        "📐 75 QM\n"
-    )
-    
-    keyboard = {
-        "inline_keyboard": [
-            [
-                {"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"},
-                {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}
-            ],
-            [
-                {"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"},
-                {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}
-            ],
-            [
-                {"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}
-            ]
-        ]
-    }
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown",
-        "reply_markup": keyboard
-    }
-    resp = requests.post(url, json=payload)
-    return jsonify(resp.json())
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
