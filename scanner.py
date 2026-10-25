@@ -15,14 +15,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS anker_staedte (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             stadt TEXT UNIQUE NOT NULL,
-            ziel_qmp REAL NOT NULL,      -- Dein fester Wunsch-Quadratmeterpreis (Heilig!)
-            markt_qmp REAL NOT NULL,     -- Offizieller Marktpreis der Ankerstadt zum Zeitpunkt der Definition
+            ziel_qmp REAL NOT NULL,      -- Dein fester Wunsch-Quadratmeterpreis
+            markt_qmp REAL NOT NULL,     -- Offizieller Marktpreis der Ankerstadt
             lat REAL NOT NULL,
             lon REAL NOT NULL
         )
     ''')
     
-    # 2. Tabelle für die offiziellen Marktpreise aller Orte, Dörfer & Städte im Umland
+    # 2. Tabelle für die offiziellen Marktpreise aller Orte im Umland
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ort_marktpreise (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
