@@ -1,12 +1,12 @@
 import os
 import sqlite3
 import requests
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
 
 # ==========================================
-# FESTE KONFIGURATION (Aktueller Token & Gruppe)
+# FESTE KONFIGURATION
 # ==========================================
 TELEGRAM_TOKEN = "8322651200:AAGmeU2XEF2frad2d9eVf2nMgEr2K8Ws7BQ"
 TELEGRAM_CHAT_ID = "-1004495350584"
@@ -83,58 +83,110 @@ def init_db():
 
 init_db()
 
+# HTML DASHBOARD TEMPLATE
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Immo Deal Hunter Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; }
+        h1 { color: #2c3e50; font-size: 24px; margin-bottom: 5px; }
+        p.subtitle { color: #7f8c8d; margin-top: 0; margin-bottom: 25px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 25px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ecf0f1; font-size: 14px; }
+        th { background-color: #f8f9fa; color: #2c3e50; font-weight: 600; }
+        tr:hover { background-color: #f9fbfd; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; display: inline-block; margin-right: 3px; }
+        .badge-yes { background-color: #e1f5fe; color: #0288d1; }
+        .badge-fav { background-color: #fff8e1; color: #fbc02d; }
+        .badge-no { background-color: #ffebee; color: #c62828; }
+        a { color: #3498db; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏠 Immo Deal Hunter Dashboard</h1>
+        <p class="subtitle">Echtzeit-Übersicht deiner erfassten Immobilien-Deals & Status</p>
+        
+        <div class="card">
+            <h3>🔥 Aktuelle Deals</h3>
+            <div style="overflow-x:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Titel / Ort</th>
+                            <th>Anker</th>
+                            <th>Preis</th>
+                            <th>Fläche</th>
+                            <th>QMP</th>
+                            <th>Status / Badges</th>
+                            <th>Link</th>
+                        </tr>
+                    </thead>
+                    <tbody id="deals-table">
+                        <tr><td colspan="8" style="text-align:center;">Lade Deals...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadDeals() {
+            try {
+                const response = await fetch('/api/deals');
+                const deals = await response.json();
+                const tbody = document.getElementById('deals-table');
+                
+                if (deals.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Keine Deals gefunden.</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = '';
+                deals.forEach(deal => {
+                    let badges = '';
+                    if (deal.favorit) badges += '<span class="badge badge-fav">⭐ Favorit</span>';
+                    if (deal.angerufen) badges += '<span class="badge badge-yes">📞 Angerufen</span>';
+                    if (deal.besichtigung) badges += '<span class="badge badge-yes">👀 Besichtigung</span>';
+                    if (deal.todo) badges += '<span class="badge badge-yes">📋 To-Do</span>';
+                    if (deal.abgelehnt) badges += '<span class="badge badge-no">❌ Abgelehnt</span>';
+                    if (!badges) badges = '<span style="color: #95a5a6;">Neu / Offen</span>';
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>#${deal.id}</td>
+                        <td><strong>${deal.titel || 'Immobilie'}</strong><br><small style="color:#7f8c8d;">${deal.ort || '-'}</small></td>
+                        <td>${deal.anker_stadt || '-'}</td>
+                        <td><strong>${deal.preis ? deal.preis.toLocaleString() + ' €' : '-'}</strong></td>
+                        <td>${deal.flaeche ? deal.flaeche + ' m²' : '-'}</td>
+                        <td>${deal.qmp ? Math.round(deal.qmp).toLocaleString() + ' €/m²' : '-'}</td>
+                        <td>${badges}</td>
+                        <td>${deal.link ? `<a href="${deal.link}" target="_blank">Ansehen 🔗</a>` : '-'}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error('Fehler beim Laden der Deals:', err);
+            }
+        }
+        loadDeals();
+        setInterval(loadDeals, 5000); // Alle 5 Sekunden automatisch aktualisieren
+    </script>
+</body>
+</html>
+"""
+
 @app.route("/", methods=["GET"])
 def home():
-    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
-    cursor = conn.cursor()
-    try:
-        cursor.execute('''
-            INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', ("3 Zimmer Test Wohnung mit To-Do", "Frankfurt Griesheim", "Frankfurt", 200000.0, 75.0, 2666.0, "https://immobilienscout24.de/test-hauptseite"))
-        conn.commit()
-        deal_id = cursor.lastrowid
-    except sqlite3.IntegrityError:
-        cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/test-hauptseite'")
-        row = cursor.fetchone()
-        deal_id = row[0] if row else 1
-    conn.close()
-    
-    text = (
-        "🔥 **NEUER TEST-DEAL (Mit To-Do)** 🔥\n"
-        "🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
-        "📍 Frankfurt Griesheim\n"
-        "💰 200.000€ (QMP: 2.666€)\n"
-        "🚪 3 Zimmer Wohnung\n"
-        "📐 75 QM\n"
-    )
-    
-    keyboard = {
-        "inline_keyboard": [
-            [
-                {"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"},
-                {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}
-            ],
-            [
-                {"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"},
-                {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}
-            ],
-            [
-                {"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}
-            ]
-        ]
-    }
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown",
-        "reply_markup": keyboard
-    }
-    resp = requests.post(url, json=payload)
-    
-    return f"Test-Nachricht an Telegram gesendet! Antwort von Telegram: {resp.text}"
+    return render_template_string(DASHBOARD_HTML)
 
 @app.route('/api/anker', methods=['GET'])
 def get_ankers():
@@ -283,6 +335,7 @@ def telegram_webhook():
         conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
         cursor = conn.cursor()
         
+        # Aktuellen Wert auslesen
         cursor.execute(f"SELECT {action} FROM deals WHERE id = ?", (deal_id,))
         row = cursor.fetchone()
         
@@ -290,15 +343,22 @@ def telegram_webhook():
             current_val = row[0]
             new_val = 0 if current_val == 1 else 1
             
+            # Wert umschalten und speichern
             cursor.execute(f"UPDATE deals SET {action} = ? WHERE id = ?", (new_val, deal_id))
             conn.commit()
             
+            # Alle Status-Werte für die Buttons abrufen
             cursor.execute("SELECT angerufen, besichtigung, favorit, abgelehnt, todo FROM deals WHERE id = ?", (deal_id,))
             st = cursor.fetchone()
             conn.close()
             
-            ang, bes, fav, todo_val, abg = st[0], st[1], st[2], st[4], st[3]
+            ang = st[0]
+            bes = st[1]
+            fav = st[2]
+            abg = st[3]
+            todo_val = st[4]
             
+            # Tastatur mit aktualisierten Häkchen zusammenbauen
             keyboard = {
                 "inline_keyboard": [
                     [
@@ -316,6 +376,7 @@ def telegram_webhook():
             }
             
             if TELEGRAM_TOKEN:
+                # Buttons in Telegram aktualisieren
                 requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup",
                     json={
@@ -324,9 +385,10 @@ def telegram_webhook():
                         "reply_markup": keyboard
                     }
                 )
+                # Klick-Bestätigung an Telegram senden
                 requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": query_id, "text": "Status aktualisiert!"}
+                    json={"callback_query_id": query_id, "text": "Status aktualisiert & in App synchronisiert!"}
                 )
 
     return jsonify({"status": "success"})
