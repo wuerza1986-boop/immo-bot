@@ -95,7 +95,6 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 def recalculate_radius_for_anker(anker_stadt_name):
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
-    
     cursor.execute("SELECT stadt, ziel_qmp, markt_qmp, lat, lon FROM anker_staedte WHERE stadt = ?", (anker_stadt_name,))
     anker = cursor.fetchone()
     if not anker:
@@ -103,21 +102,16 @@ def recalculate_radius_for_anker(anker_stadt_name):
         return
     
     _, a_ziel, a_markt, a_lat, a_lon = anker
-    # Verhältnis / prozentualer Unterschied
-    ratio = a_ziel / a_markt if a_markt > 0 else 0.8
-    
     cursor.execute("SELECT id, ort, aktueeller_markt_qmp, lat, lon FROM ort_marktpreise")
     orte = cursor.fetchall()
     
     for ort_id, ort_name, o_markt, o_lat, o_lon in orte:
         dist = calculate_distance(a_lat, a_lon, o_lat, o_lon)
         if dist <= 20.0:
-            # Passe den Marktpreis des Ortes anteilig an oder berechne den Zielpreis neu
             pass
             
     conn.close()
 
-# MODERNES & SCHICKES MOBILE-FIRST DASHBOARD TEMPLATE
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html lang="de">
@@ -137,6 +131,8 @@ DASHBOARD_HTML = """
         .btn-primary:hover { background-color: #1d4ed8; }
         .btn-success { background-color: var(--success); color: white; }
         .btn-success:hover { background-color: #15803d; }
+        .btn-delete { background: #fee2e2; color: #b91c1c; padding: 6px 10px; font-size: 12px; border-radius: 6px; }
+        .btn-delete:hover { background: #fca5a5; }
         
         /* Tabs / Ordner */
         .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 15px; scrollbar-width: none; }
@@ -161,7 +157,7 @@ DASHBOARD_HTML = """
         .badge-todo { background: #f3e8ff; color: #7e22ce; }
         .badge-no { background: #fee2e2; color: #b91c1c; }
         
-        .deal-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; pt: 10px; margin-top: 8px; padding-top: 10px; }
+        .deal-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; padding-top: 10px; margin-top: 8px; }
         .link-btn { color: var(--primary); text-decoration: none; font-size: 13px; font-weight: 600; }
         
         /* Modal für Anker Liste */
@@ -263,7 +259,10 @@ DASHBOARD_HTML = """
                             <div class="deal-title">${deal.titel || 'Immobilie'}</div>
                             <div class="deal-location">📍 ${deal.ort || '-'} (Anker: ${deal.anker_stadt || '-'})</div>
                         </div>
-                        <span style="font-size:12px; font-weight:600; color:var(--text-light);">#${deal.id}</span>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="font-size:12px; font-weight:600; color:var(--text-light);">#${deal.id}</span>
+                            <button class="btn-delete" onclick="deleteDeal(${deal.id})">🗑️</button>
+                        </div>
                     </div>
                     <div class="deal-price">${deal.preis ? deal.preis.toLocaleString() + ' €' : '-'}</div>
                     <div class="deal-details">
@@ -278,6 +277,21 @@ DASHBOARD_HTML = """
                 `;
                 container.appendChild(card);
             });
+        }
+
+        async function deleteDeal(dealId) {
+            if (confirm("Möchtest du diesen Deal wirklich komplett aus der Datenbank löschen?")) {
+                const res = await fetch('/api/deal/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: dealId })
+                });
+                if (res.ok) {
+                    loadDeals();
+                } else {
+                    alert("Fehler beim Löschen des Deals.");
+                }
+            }
         }
 
         async function sendTestDeal() {
@@ -336,7 +350,6 @@ DASHBOARD_HTML = """
 
         async function autoFetchMarket(id, stadt) {
             alert(`Automatischer Hintergrund-Scan für ${stadt} gestartet... Marktpreis aktualisiert!`);
-            // Simulierter Live-Scraper Trigger
             loadDeals();
         }
 
@@ -358,7 +371,6 @@ def get_ankers():
     cursor.execute("SELECT id, stadt, ziel_qmp, markt_qmp FROM anker_staedte")
     rows = cursor.fetchall()
     conn.close()
-    
     return jsonify([{"id": r[0], "stadt": r[1], "ziel_qmp": r[2], "markt_qmp": r[3]} for r in rows])
 
 @app.route('/api/anker/update', methods=['POST'])
@@ -395,6 +407,22 @@ def get_deals():
         "angerufen": r[8], "besichtigung": r[9], "favorit": r[10],
         "abgelehnt": r[11], "todo": r[12], "erstellt_am": r[13]
     } for r in rows])
+
+@app.route('/api/deal/delete', methods=['POST'])
+def delete_deal():
+    data = request.get_json()
+    deal_id = data.get('id')
+    
+    if not deal_id:
+        return jsonify({"error": "Keine ID übergeben"}), 400
+        
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM deals WHERE id = ?", (deal_id,))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"status": "deleted", "id": deal_id})
 
 @app.route('/api/deal/add', methods=['POST'])
 def add_deal():
@@ -508,4 +536,4 @@ def telegram_webhook():
     return jsonify({"status": "success"})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.com.get("PORT", 5000) if hasattr(os.environ, 'get') else 5000))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
