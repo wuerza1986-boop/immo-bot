@@ -6,9 +6,9 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # ==========================================
-# FESTE KONFIGURATION (Dein Bot & deine Gruppe)
+# FESTE KONFIGURATION (Mit neuem, aktuellem Token)
 # ==========================================
-TELEGRAM_TOKEN = "8322651200:AAEo1XuXZF5webGi1EW1tWSRnKk6bcx61c"
+TELEGRAM_TOKEN = "8322651200:AAGmeU2XEF2frad2d9eVf2nMgEr2K8Ws7BQ"
 TELEGRAM_CHAT_ID = "-1004495350584"
 # ==========================================
 
@@ -259,3 +259,77 @@ def add_deal():
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
+    if not data or 'callback_query' not in data:
+        return jsonify({"status": "ignored"})
+    
+    callback_query = data['callback_query']
+    callback_data = callback_query['data']
+    message = callback_query['message']
+    chat_id = message['chat']['id']
+    message_id = message['message_id']
+    query_id = callback_query['id']
+    
+    parts = callback_data.split('_')
+    if len(parts) == 2:
+        action, deal_id_str = parts
+        if action not in ['angerufen', 'besichtigung', 'favorit', 'abgelehnt', 'todo']:
+            return jsonify({"status": "invalid action"})
+            
+        try:
+            deal_id = int(deal_id_str)
+        except ValueError:
+            return jsonify({"status": "invalid id"})
+        
+        conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+        cursor = conn.cursor()
+        
+        cursor.execute(f"SELECT {action} FROM deals WHERE id = ?", (deal_id,))
+        row = cursor.fetchone()
+        
+        if row is not None:
+            current_val = row[0]
+            new_val = 0 if current_val == 1 else 1
+            
+            cursor.execute(f"UPDATE deals SET {action} = ? WHERE id = ?", (new_val, deal_id))
+            conn.commit()
+            
+            cursor.execute("SELECT angerufen, besichtigung, favorit, abgelehnt, todo FROM deals WHERE id = ?", (deal_id,))
+            st = cursor.fetchone()
+            conn.close()
+            
+            ang, bes, fav, todo_val, abg = st[0], st[1], st[2], st[4], st[3]
+            
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": f"📞 Angerufen {'✅' if ang else ''}", "callback_data": f"angerufen_{deal_id}"},
+                        {"text": f"👀 Besichtigung {'✅' if bes else ''}", "callback_data": f"besichtigung_{deal_id}"}
+                    ],
+                    [
+                        {"text": f"⭐ Favorit {'✅' if fav else ''}", "callback_data": f"favorit_{deal_id}"},
+                        {"text": f"📋 To-Do {'✅' if todo_val else ''}", "callback_data": f"todo_{deal_id}"}
+                    ],
+                    [
+                        {"text": f"❌ Abgelehnt {'✅' if abg else ''}", "callback_data": f"abgelehnt_{deal_id}"}
+                    ]
+                ]
+            }
+            
+            if TELEGRAM_TOKEN:
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup",
+                    json={
+                        "chat_id": chat_id,
+                        "message_id": message_id,
+                        "reply_markup": keyboard
+                    }
+                )
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery",
+                    json={"callback_query_id": query_id, "text": "Status aktualisiert!"}
+                )
+
+    return jsonify({"status": "success"})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
