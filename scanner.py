@@ -337,6 +337,7 @@ def add_deal():
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
+    print("Webhook empfangen:", data)
     if not data or 'callback_query' not in data:
         return jsonify({"status": "ignored"})
     
@@ -394,7 +395,7 @@ def telegram_webhook():
             }
             
             if TELEGRAM_TOKEN:
-                requests.post(
+                res = requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup",
                     json={
                         "chat_id": chat_id,
@@ -402,6 +403,8 @@ def telegram_webhook():
                         "reply_markup": keyboard
                     }
                 )
+                print("Telegram edit response:", res.text)
+                
                 requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery",
                     json={"callback_query_id": query_id, "text": "Häkchen aktualisiert!"}
