@@ -150,7 +150,8 @@ def send_test_deal():
         deal_id = cursor.lastrowid
     except sqlite3.IntegrityError:
         cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/test'")
-        deal_id = cursor.fetchone()[0]
+        row = cursor.fetchone()
+        deal_id = row[0] if row else 1
     conn.close()
     
     text = (
