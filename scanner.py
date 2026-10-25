@@ -136,8 +136,8 @@ def get_deals():
 
 @app.route('/test-deal', methods=['GET'])
 def send_test_deal():
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return jsonify({"status": "error", "message": "TELEGRAM_TOKEN oder TELEGRAM_CHAT_ID fehlt in Render Environment Variables!"})
+    if not TELEGRAM_TOKEN:
+        return jsonify({"status": "error", "message": "TELEGRAM_TOKEN fehlt!"})
     
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
@@ -145,15 +145,20 @@ def send_test_deal():
         cursor.execute('''
             INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', ("3 Zimmer Test Wohnung mit To-Do", "Frankfurt Griesheim", "Frankfurt", 200000.0, 75.0, 2666.0, "https://immobilienscout24.de/test"))
+        ''', ("3 Zimmer Test Wohnung mit To-Do", "Frankfurt Griesheim", "Frankfurt", 200000.0, 75.0, 2666.0, "https://immobilienscout24.de/test-fix"))
         conn.commit()
         deal_id = cursor.lastrowid
     except sqlite3.IntegrityError:
-        cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/test'")
+        cursor.execute("SELECT id FROM deals WHERE link = 'https://immobilienscout24.de/test-fix'")
         row = cursor.fetchone()
         deal_id = row[0] if row else 1
     conn.close()
     
+    # Versuche Chat-ID aus Request-Parametern oder Fallback zu Env-Variable
+    chat_id = request.args.get('chat_id', TELEGRAM_CHAT_ID)
+    if not chat_id:
+        return jsonify({"status": "error", "message": "Keine Chat-ID angegeben und TELEGRAM_CHAT_ID nicht gesetzt!"})
+
     text = (
         "🔥 **NEUER TEST-DEAL (Mit To-Do)** 🔥\n"
         "🏙️ Frankfurt (Ziel-QMP: 2600€)\n"
@@ -181,7 +186,7 @@ def send_test_deal():
     
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": text,
         "parse_mode": "Markdown",
         "reply_markup": keyboard
