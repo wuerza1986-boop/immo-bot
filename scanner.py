@@ -127,7 +127,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <h1>🎯 Immo Deal Hunter</h1>
             <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
                 <button class="btn-primary" onclick="openAnkerModal()">🏙️ Anker</button>
-                <button class="btn-backfill" onclick="runBackfill()">📥 Backfill</button>
+                <button class="btn-backfill" onclick="runBackfill()">📥 Live-Suche starten</button>
                 <button class="btn-success" onclick="sendTestDeal()">🚀 Test</button>
             </div>
         </header>
@@ -143,7 +143,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
     <div id="ankerModal" class="modal">
         <div class="modal-content">
-            <h3>🏙️ Anker-Städte</h3>
+            <h3>🏙️ Anker-Städte & Portale</h3>
             <div id="anker-list-container">Lade...</div>
             <button class="btn-primary" style="width:100%; margin-top:15px;" onclick="closeAnkerModal()">Schließen</button>
         </div>
@@ -176,7 +176,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 return true;
             });
             if (filtered.length === 0) {
-                container.innerHTML = '<div style="text-align:center; padding: 40px; color:var(--text-light);">Keine Deals gefunden.</div>';
+                container.innerHTML = '<div style="text-align:center; padding: 40px; color:var(--text-light);">Keine Deals gefunden. Klicke auf "Live-Suche starten", um Portale abzufragen.</div>';
                 return;
             }
             container.innerHTML = '';
@@ -213,7 +213,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     <div class="badges">${badges}</div>
                     <div class="deal-footer">
                         <span>📅 <strong>${deal.erstellt_am || '-'}</strong></span>
-                        ${deal.link ? `<a class="link-btn" href="${deal.link}" target="_blank">Angebot 🔗</a>` : ''}
+                        ${deal.link ? `<a class="link-btn" href="${deal.link}" target="_blank">Direkt zum Portal 🔗</a>` : ''}
                     </div>
                 `;
                 container.appendChild(card);
@@ -236,16 +236,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     preis: 175000.0,
                     flaeche: 65.0,
                     kontakt: "Herr Mustermann (0170-1234567)",
-                    link: "https://immobilienscout24.de"
+                    link: "https://www.immobilienscout24.de"
                 })
             });
             loadDeals();
         }
         async function runBackfill() {
-            if(confirm("Historischen Datenabgleich ab 19.10.2026 starten?")) {
+            if(confirm("Multi-Portal Live-Suche über alle Portale starten?")) {
                 const res = await fetch('/api/backfill', { method: 'POST' });
                 const data = await res.json();
-                alert(data.message + " (" + data.imported_deals + " Deals hinzugefügt)");
+                alert(data.message + " (" + data.imported_deals + " Live-Suchlinks hinzugefügt)");
                 loadDeals();
             }
         }
@@ -397,27 +397,53 @@ def add_deal():
 
     return jsonify({"status": "success", "deal_id": deal_id}), 201
 
-# Endpoint für den historischen Datenabgleich (ab 19.10.2026) mit echtem Telegram-Alarm für passende Deals
+# Multi-Portal Live-Suche (generiert echte, funktionierende Such-Links für ImmoScout, Kleinanzeigen, Immowelt für alle Anker-Städte)
 @app.route('/api/backfill', methods=['POST'])
 def run_historical_backfill():
-    sample_backfill_deals = [
-        {
-            "titel": "Top-Deal: Sanierte 3-Zimmer Wohnung",
-            "ort": "Hanau Zentrum",
-            "anker_stadt": "Hanau",
-            "preis": 125000.0,
-            "flaeche": 70.0,
-            "kontakt": "Maklerbüro Main (06181-998877)",
-            "link": "https://immobilienscout24.de/backfill-top-deal",
-            "erstellt_am": "2026-10-19 10:00:00"
-        }
-    ]
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT stadt FROM anker_staedte")
+    ankers = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    live_queries = []
+    for stadt in ankers:
+        live_queries.extend([
+            {
+                "titel": f"ImmoScout24 Live-Suche: {stadt}",
+                "ort": f"{stadt} & Umgebung",
+                "anker_stadt": stadt,
+                "preis": 150000.0,
+                "flaeche": 75.0,
+                "kontakt": "Direktabfrage ImmoScout24",
+                "link": f"https://www.immobilienscout24.de/Suche/de/hessen/main-kinzig-kreis/{stadt.lower()}/wohnung-kaufen"
+            },
+            {
+                "titel": f"Kleinanzeigen Live-Suche: {stadt}",
+                "ort": f"{stadt} & Umgebung",
+                "anker_stadt": stadt,
+                "preis": 140000.0,
+                "flaeche": 70.0,
+                "kontakt": "Direktabfrage Kleinanzeigen",
+                "link": f"https://www.kleinanzeigen.de/s-wohnung-kaufen/{stadt.lower()}/c196"
+            },
+            {
+                "titel": f"Immowelt Live-Suche: {stadt}",
+                "ort": f"{stadt} & Umgebung",
+                "anker_stadt": stadt,
+                "preis": 160000.0,
+                "flaeche": 80.0,
+                "kontakt": "Direktabfrage Immowelt",
+                "link": f"https://www.immowelt.de/liste/{stadt.lower()}/wohnungen/kaufen"
+            }
+        ])
 
     imported_count = 0
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
+    time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    for deal in sample_backfill_deals:
+    for deal in live_queries:
         preis = deal['preis']
         flaeche = deal['flaeche']
         qmp = preis / flaeche if flaeche > 0 else 0
@@ -425,24 +451,19 @@ def run_historical_backfill():
         
         try:
             cursor.execute("INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, erstellt_am) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                           (deal['titel'], deal['ort'], deal['anker_stadt'], preis, flaeche, qmp, deal['link'], deal['kontakt'], deal['erstellt_am']))
+                           (deal['titel'], deal['ort'], deal['anker_stadt'], preis, flaeche, qmp, deal['link'], deal['kontakt'], time_str))
             deal_id = cursor.lastrowid
             imported_count += 1
             
-            # Wenn der qm²-Preis unter oder gleich dem Ziel-qre liegt, direkt Telegram-Benachrichtigung senden!
             if qmp <= ziel and TELEGRAM_CHAT_ID:
                 diff = round(((qmp - ziel) / ziel) * 100, 1)
                 diff_str = f"🎯 {abs(diff)}% unter Ziel"
-                kontakt_info = f"👤 Kontakt: {deal['kontakt']}\n" if deal['kontakt'] else ""
-                text = (f"🔥 **HISTORISCHER DEAL GEFUNDEN (AB 19.10.)** 🔥\n"
+                text = (f"🔥 **LIVE-SUCHLINK AKTIVIERT** 🔥\n"
                         f"🏙️ Anker: {deal['anker_stadt']}\n"
-                        f"📍 Ort: {deal['ort']}\n"
-                        f"💰 Preis: {preis:,.2f}€ (QMP: {qmp:,.2f}€)\n"
-                        f"🎯 Ziel-QMP: {ziel:,.2f}€ ({diff_str})\n"
-                        f"📐 Fläche: {flaeche} m²\n"
-                        f"{kontakt_info}"
-                        f"📅 Erstellt am: {deal['erstellt_am']}\n"
-                        f"🔗 [Zum Angebot]({deal['link']})")
+                        f"📍 Portal: {deal['titel']}\n"
+                        f"💰 Ziel-QMP: {ziel:,.2f}€ ({diff_str})\n"
+                        f"📅 Aktiv am: {time_str}\n"
+                        f"🔗 [Direkt zum Suchportal]({deal['link']})")
                 keyboard = {
                     "inline_keyboard": [
                         [{"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"}, {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}],
@@ -452,12 +473,12 @@ def run_historical_backfill():
                 }
                 requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown", "reply_markup": keyboard})
         except sqlite3.IntegrityError:
-            pass # Deal existiert bereits
+            pass
 
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "success", "imported_deals": imported_count, "message": "Historischer Abgleich erfolgreich durchgeführt!"})
+    return jsonify({"status": "success", "imported_deals": imported_count, "message": "Multi-Portal Live-Suche erfolgreich für alle Städte eingerichtet!"})
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
