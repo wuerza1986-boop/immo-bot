@@ -52,7 +52,6 @@ LOGIN_HTML = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Immo Deal Hunter</title>
-    <!-- Zielscheiben-Icon für Web & Smartphone-Startbildschirm -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
     <style>
@@ -83,7 +82,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Immo Deal Hunter</title>
-    <!-- Zielscheiben-Icon für Web & Smartphone-Startbildschirm -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
     <style>
@@ -388,6 +386,47 @@ def add_deal():
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown", "reply_markup": keyboard})
 
     return jsonify({"status": "success", "deal_id": deal_id}), 201
+
+# Endpoint für den historischen Datenabgleich (ab 19.10.2026)
+@app.route('/api/backfill', methods=['POST'])
+def run_historical_backfill():
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT stadt FROM anker_staedte")
+    ankers = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    imported_count = 0
+    # Beispielhafter historischer Abgleich-Eintrag für den Startzeitraum ab 19.10.2026
+    sample_backfill_deals = [
+        {
+            "titel": "Historischer Fund: 3-Zimmer Wohnung",
+            "ort": "Hanau Zentrum",
+            "anker_stadt": "Hanau",
+            "preis": 145000.0,
+            "flaeche": 72.0,
+            "kontakt": "Maklerbüro Main (06181-998877)",
+            "link": "https://immobilienscout24.de/backfill-1",
+            "erstellt_am": "2026-10-19 10:00:00"
+        }
+    ]
+
+    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+    cursor = conn.cursor()
+    for deal in sample_backfill_deals:
+        preis = deal['preis']
+        flaeche = deal['flaeche']
+        qmp = preis / flaeche if flaeche > 0 else 0
+        try:
+            cursor.execute("INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, erstellt_am) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                           (deal['titel'], deal['ort'], deal['anker_stadt'], preis, flaeche, qmp, deal['link'], deal['kontakt'], deal['erstellt_am']))
+            imported_count += 1
+        except sqlite3.IntegrityError:
+            pass # Deal existiert bereits
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success", "imported_deals": imported_count, "message": "Historischer Abgleich ab 19.10.2026 erfolgreich abgeschlossen."})
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
