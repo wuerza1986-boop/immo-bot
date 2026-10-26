@@ -236,16 +236,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     preis: 175000.0,
                     flaeche: 65.0,
                     kontakt: "Herr Mustermann (0170-1234567)",
-                    link: "https://www.immobilienscout24.de"
+                    link: "https://www.kleinanzeigen.de/s-wohnung-kaufen/frankfurt-am-main/c196l4292"
                 })
             });
             loadDeals();
         }
         async function runBackfill() {
-            if(confirm("Multi-Portal Live-Suche über alle Portale starten?")) {
+            if(confirm("Multi-Portal Live-Suche starten?")) {
                 const res = await fetch('/api/backfill', { method: 'POST' });
                 const data = await res.json();
-                alert(data.message + " (" + data.imported_deals + " Live-Suchlinks hinzugefügt)");
+                alert(data.message);
                 loadDeals();
             }
         }
@@ -397,7 +397,7 @@ def add_deal():
 
     return jsonify({"status": "success", "deal_id": deal_id}), 201
 
-# Multi-Portal Live-Suche (generiert echte, funktionierende Such-Links für ImmoScout, Kleinanzeigen, Immowelt für alle Anker-Städte)
+# Erzeugt funktionierende Suchlinks zu echten Inseraten
 @app.route('/api/backfill', methods=['POST'])
 def run_historical_backfill():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -408,35 +408,16 @@ def run_historical_backfill():
 
     live_queries = []
     for stadt in ankers:
-        live_queries.extend([
-            {
-                "titel": f"ImmoScout24 Live-Suche: {stadt}",
-                "ort": f"{stadt} & Umgebung",
-                "anker_stadt": stadt,
-                "preis": 150000.0,
-                "flaeche": 75.0,
-                "kontakt": "Direktabfrage ImmoScout24",
-                "link": f"https://www.immobilienscout24.de/Suche/de/hessen/main-kinzig-kreis/{stadt.lower()}/wohnung-kaufen"
-            },
-            {
-                "titel": f"Kleinanzeigen Live-Suche: {stadt}",
-                "ort": f"{stadt} & Umgebung",
-                "anker_stadt": stadt,
-                "preis": 140000.0,
-                "flaeche": 70.0,
-                "kontakt": "Direktabfrage Kleinanzeigen",
-                "link": f"https://www.kleinanzeigen.de/s-wohnung-kaufen/{stadt.lower()}/c196"
-            },
-            {
-                "titel": f"Immowelt Live-Suche: {stadt}",
-                "ort": f"{stadt} & Umgebung",
-                "anker_stadt": stadt,
-                "preis": 160000.0,
-                "flaeche": 80.0,
-                "kontakt": "Direktabfrage Immowelt",
-                "link": f"https://www.immowelt.de/liste/{stadt.lower()}/wohnungen/kaufen"
-            }
-        ])
+        stadt_clean = stadt.lower().replace(" ", "-")
+        live_queries.append({
+            "titel": f"Kleinanzeigen Angebote: {stadt}",
+            "ort": f"{stadt} & Umgebung",
+            "anker_stadt": stadt,
+            "preis": 150000.0,
+            "flaeche": 75.0,
+            "kontakt": "Live-Suche Kleinanzeigen",
+            "link": f"https://www.kleinanzeigen.de/s-wohnung-kaufen/{stadt_clean}/c196"
+        })
 
     imported_count = 0
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -447,38 +428,17 @@ def run_historical_backfill():
         preis = deal['preis']
         flaeche = deal['flaeche']
         qmp = preis / flaeche if flaeche > 0 else 0
-        ziel = get_target_qmp(deal['anker_stadt'])
-        
         try:
             cursor.execute("INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, erstellt_am) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                            (deal['titel'], deal['ort'], deal['anker_stadt'], preis, flaeche, qmp, deal['link'], deal['kontakt'], time_str))
-            deal_id = cursor.lastrowid
             imported_count += 1
-            
-            if qmp <= ziel and TELEGRAM_CHAT_ID:
-                diff = round(((qmp - ziel) / ziel) * 100, 1)
-                diff_str = f"🎯 {abs(diff)}% unter Ziel"
-                text = (f"🔥 **LIVE-SUCHLINK AKTIVIERT** 🔥\n"
-                        f"🏙️ Anker: {deal['anker_stadt']}\n"
-                        f"📍 Portal: {deal['titel']}\n"
-                        f"💰 Ziel-QMP: {ziel:,.2f}€ ({diff_str})\n"
-                        f"📅 Aktiv am: {time_str}\n"
-                        f"🔗 [Direkt zum Suchportal]({deal['link']})")
-                keyboard = {
-                    "inline_keyboard": [
-                        [{"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"}, {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}],
-                        [{"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"}, {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}],
-                        [{"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}]
-                    ]
-                }
-                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown", "reply_markup": keyboard})
         except sqlite3.IntegrityError:
             pass
 
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "success", "imported_deals": imported_count, "message": "Multi-Portal Live-Suche erfolgreich für alle Städte eingerichtet!"})
+    return jsonify({"status": "success", "imported_deals": imported_count, "message": "Portal-Suche aktualisiert!"})
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
@@ -507,7 +467,7 @@ def telegram_webhook():
                     [{"text": f"❌ Abgelehnt {'✅' if st[3] else ''}", "callback_data": f"abgelehnt_{did}"}]
                 ]
             }
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup", json={"chat_id": cb['message']['chat']['id'], "message_id": cb['message']['message_id'], "reply_markup": kb})
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={"chat_id": cb['message']['chat']['id'], "message_id": cb['message']['message_id'], "reply_markup": kb})
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb['id'], "text": "Aktualisiert!"})
     return jsonify({"status": "success"})
 
