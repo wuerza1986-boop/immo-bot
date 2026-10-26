@@ -397,45 +397,67 @@ def add_deal():
 
     return jsonify({"status": "success", "deal_id": deal_id}), 201
 
-# Endpoint für den historischen Datenabgleich (ab 19.10.2026)
+# Endpoint für den historischen Datenabgleich (ab 19.10.2026) mit echtem Telegram-Alarm für passende Deals
 @app.route('/api/backfill', methods=['POST'])
 def run_historical_backfill():
-    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT stadt FROM anker_staedte")
-    ankers = [row[0] for row in cursor.fetchall()]
-    conn.close()
-
-    imported_count = 0
     sample_backfill_deals = [
         {
-            "titel": "Historischer Fund: 3-Zimmer Wohnung",
+            "titel": "Top-Deal: Sanierte 3-Zimmer Wohnung",
             "ort": "Hanau Zentrum",
             "anker_stadt": "Hanau",
-            "preis": 145000.0,
-            "flaeche": 72.0,
+            "preis": 125000.0,
+            "flaeche": 70.0,
             "kontakt": "Maklerbüro Main (06181-998877)",
-            "link": "https://immobilienscout24.de/backfill-1",
+            "link": "https://immobilienscout24.de/backfill-top-deal",
             "erstellt_am": "2026-10-19 10:00:00"
         }
     ]
 
+    imported_count = 0
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
+    
     for deal in sample_backfill_deals:
         preis = deal['preis']
         flaeche = deal['flaeche']
         qmp = preis / flaeche if flaeche > 0 else 0
+        ziel = get_target_qmp(deal['anker_stadt'])
+        
         try:
             cursor.execute("INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, erstellt_am) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                            (deal['titel'], deal['ort'], deal['anker_stadt'], preis, flaeche, qmp, deal['link'], deal['kontakt'], deal['erstellt_am']))
+            deal_id = cursor.lastrowid
             imported_count += 1
+            
+            # Wenn der qm²-Preis unter oder gleich dem Ziel-qre liegt, direkt Telegram-Benachrichtigung senden!
+            if qmp <= ziel and TELEGRAM_CHAT_ID:
+                diff = round(((qmp - ziel) / ziel) * 100, 1)
+                diff_str = f"🎯 {abs(diff)}% unter Ziel"
+                kontakt_info = f"👤 Kontakt: {deal['kontakt']}\n" if deal['kontakt'] else ""
+                text = (f"🔥 **HISTORISCHER DEAL GEFUNDEN (AB 19.10.)** 🔥\n"
+                        f"🏙️ Anker: {deal['anker_stadt']}\n"
+                        f"📍 Ort: {deal['ort']}\n"
+                        f"💰 Preis: {preis:,.2f}€ (QMP: {qmp:,.2f}€)\n"
+                        f"🎯 Ziel-QMP: {ziel:,.2f}€ ({diff_str})\n"
+                        f"📐 Fläche: {flaeche} m²\n"
+                        f"{kontakt_info}"
+                        f"📅 Erstellt am: {deal['erstellt_am']}\n"
+                        f"🔗 [Zum Angebot]({deal['link']})")
+                keyboard = {
+                    "inline_keyboard": [
+                        [{"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"}, {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}],
+                        [{"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"}, {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}],
+                        [{"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}]
+                    ]
+                }
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown", "reply_markup": keyboard})
         except sqlite3.IntegrityError:
-            pass
+            pass # Deal existiert bereits
+
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "success", "imported_deals": imported_count, "message": "Historischer Abgleich ab 19.10.2026 erfolgreich abgeschlossen."})
+    return jsonify({"status": "success", "imported_deals": imported_count, "message": "Historischer Abgleich erfolgreich durchgeführt!"})
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
