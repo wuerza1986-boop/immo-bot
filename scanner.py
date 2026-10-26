@@ -93,6 +93,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         button { cursor: pointer; border: none; border-radius: 8px; font-weight: 600; padding: 10px 14px; font-size: 14px; }
         .btn-primary { background-color: var(--primary); color: white; }
         .btn-success { background-color: var(--success); color: white; }
+        .btn-backfill { background-color: #0284c7; color: white; }
         .btn-delete { background: #fee2e2; color: #b91c1c; padding: 6px 10px; font-size: 12px; border-radius: 6px; }
         .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 15px; scrollbar-width: none; }
         .tabs::-webkit-scrollbar { display: none; }
@@ -124,8 +125,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="container">
         <header>
             <h1>🎯 Immo Deal Hunter</h1>
-            <div style="display:flex; gap:8px;">
+            <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
                 <button class="btn-primary" onclick="openAnkerModal()">🏙️ Anker</button>
+                <button class="btn-backfill" onclick="runBackfill()">📥 Backfill</button>
                 <button class="btn-success" onclick="sendTestDeal()">🚀 Test</button>
             </div>
         </header>
@@ -238,6 +240,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 })
             });
             loadDeals();
+        }
+        async function runBackfill() {
+            if(confirm("Historischen Datenabgleich ab 19.10.2026 starten?")) {
+                const res = await fetch('/api/backfill', { method: 'POST' });
+                const data = await res.json();
+                alert(data.message + " (" + data.imported_deals + " Deals hinzugefügt)");
+                loadDeals();
+            }
         }
         async function openAnkerModal() {
             document.getElementById('ankerModal').style.display = 'flex';
@@ -397,7 +407,6 @@ def run_historical_backfill():
     conn.close()
 
     imported_count = 0
-    # Beispielhafter historischer Abgleich-Eintrag für den Startzeitraum ab 19.10.2026
     sample_backfill_deals = [
         {
             "titel": "Historischer Fund: 3-Zimmer Wohnung",
@@ -422,7 +431,7 @@ def run_historical_backfill():
                            (deal['titel'], deal['ort'], deal['anker_stadt'], preis, flaeche, qmp, deal['link'], deal['kontakt'], deal['erstellt_am']))
             imported_count += 1
         except sqlite3.IntegrityError:
-            pass # Deal existiert bereits
+            pass
     conn.commit()
     conn.close()
 
