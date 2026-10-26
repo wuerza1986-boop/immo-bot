@@ -104,11 +104,10 @@ def run_scan():
                 ads = soup.select("article.aditem")
                 
                 for ad in ads[:3]: # Nimm die ersten 3 frischesten pro Stadt
-                    title_elem = ad.select_h2("a") if hasattr(ad, 'select_h2') else ad.select_one("a.ellipsis")
-                    if not title_elem:
-                        title_elem = ad.select_one(".aditem-main--middle a")
+                    title_elem = ad.select_one("a.ellipsis") if ad.select_one("a.ellipsis") else ad.select_one(".aditem-main--middle a")
                     
-                    title = title_elem.text.strip() if title_elem ? "Unbekannter Titel"
+                    # Hier war das ? korrigiert zu 'else'
+                    title = title_elem.text.strip() if title_elem else "Unbekannter Titel"
                     link_suffix = title_elem["href"] if title_elem and "href" in title_elem.attrs else ""
                     link = f"https://www.kleinanzeigen.de{link_suffix}" if link_suffix.startswith("/") else link_suffix
                     
