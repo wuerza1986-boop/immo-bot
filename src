@@ -1,0 +1,167 @@
+import os
+import sqlite3
+import requests
+from flask import Flask, render_template, request, redirect, url_for
+from bs4 import BeautifulSoup
+
+app = Flask(__name__)
+
+# Konfiguration (Hartcodierte Credentials wie gewünscht)
+TELEGRAM_BOT_TOKEN = "7547633633:AAGYJ45T_21J5T7o2M8x3W8Y1Qz9K2v8l3c"
+TELEGRAM_CHAT_ID = "5745129668"
+ADMIN_BYPASS_TOKEN = "mein_geheimer_admin_token"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+}
+
+def init_db():
+    conn = sqlite3.connect("deal_hunter.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS anker_staedte (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            price TEXT,
+            location TEXT,
+            link TEXT UNIQUE,
+            status TEXT DEFAULT 'Neu'
+        )
+    """)
+    conn.commit()
+    
+    # Standard-Ankerstadt Frankfurt hinzufügen, falls noch keine da ist
+    cursor.execute("SELECT COUNT(*) FROM anker_staedte")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT INTO anker_staedte (name) VALUES (?)", ("Frankfurt am Main",))
+        conn.commit()
+    conn.close()
+
+init_db()
+
+def send_telegram_notification(deal_id, title, price, location, link):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    text = f"🚨 **Neuer Immo Deal!**\n\n🏠 {title}\n💰 {price}\n📍 {location}\n🔗 [Zum Angebot]({link})"
+    
+    # Inline Keyboard für Aktionen direkt über Telegram
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "✅ Exposé anfordern", "callback_data": f"action_expose_{deal_id}"},
+                {"text": "📞 Anrufen", "callback_data": f"action_call_{deal_id}"}
+            ],
+            [
+                {"text": "❌ Verwerfen", "callback_data": f"action_drop_{deal_id}"}
+            ]
+        ]
+    }
+    
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown",
+        "reply_markup": keyboard
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Telegram Fehler: {e}")
+
+@app.route("/")
+def index():
+    conn = sqlite3.connect("deal_hunter.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM deals ORDER BY id DESC")
+    deals = cursor.fetchall()
+    cursor.execute("SELECT * FROM anker_staedte")
+    cities = cursor.fetchall()
+    conn.close()
+    return render_template("index.html", deals=deals, cities=cities)
+
+@app.route("/scan", methods=["POST"])
+def run_scan():
+    conn = sqlite3.connect("deal_hunter.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM anker_staedte")
+    cities = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    new_deals_count = 0
+    
+    # Beispielhafter Suchlauf (ImmoScout24 / Kleinanzeigen Struktur-Simulator für Frankfurt & Region)
+    for city in cities:
+        search_url = f"https://www.kleinanzeigen.de/s-haus-kaufen/{city}/c208l4284"
+        try:
+            response = requests.get(search_url, headers=HEADERS, timeout=10)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                ads = soup.select("article.aditem")
+                
+                for ad in ads[:3]: # Nimm die ersten 3 frischesten pro Stadt
+                    title_elem = ad.select_h2("a") if hasattr(ad, 'select_h2') else ad.select_one("a.ellipsis")
+                    if not title_elem:
+                        title_elem = ad.select_one(".aditem-main--middle a")
+                    
+                    title = title_elem.text.strip() if title_elem ? "Unbekannter Titel"
+                    link_suffix = title_elem["href"] if title_elem and "href" in title_elem.attrs else ""
+                    link = f"https://www.kleinanzeigen.de{link_suffix}" if link_suffix.startswith("/") else link_suffix
+                    
+                    price_elem = ad.select_one(".aditem-main--top-right")
+                    price = price_elem.text.strip() if price_elem else "Preis auf Anfrage"
+                    
+                    loc_elem = ad.select_one(".aditem-main--top-left")
+                    location = loc_elem.text.strip() if loc_elem else city
+
+                    if link:
+                        conn = sqlite3.connect("deal_hunter.db")
+                        cursor = conn.cursor()
+                        try:
+                            cursor.execute(
+                                "INSERT INTO deals (title, price, location, link, status) VALUES (?, ?, ?, ?, ?)",
+                                (title, price, location, link, "Neu")
+                            )
+                            conn.commit()
+                            deal_id = cursor.lastrowid
+                            new_deals_count += 1
+                            send_telegram_notification(deal_id, title, price, location, link)
+                        except sqlite3.IntegrityError:
+                            # Deal existiert bereits
+                            pass
+                        conn.close()
+        except Exception as e:
+            print(f"Fehler beim Scannen von {city}: {e}")
+
+    return redirect(url_for("index"))
+
+@app.route("/add_city", methods=["POST"])
+def add_city():
+    city_name = request.form.get("city_name")
+    if city_name:
+        conn = sqlite3.connect("deal_hunter.db")
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO anker_staedte (name) VALUES (?)", (city_name,))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            pass
+        conn.close()
+    return redirect(url_for("index"))
+
+@app.route("/delete_deal/<int:deal_id>", methods=["POST"])
+def delete_deal(deal_id):
+    conn = sqlite3.connect("deal_hunter.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM deals WHERE id = ?", (deal_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("index"))
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
