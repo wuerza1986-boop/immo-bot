@@ -11,8 +11,8 @@ TELEGRAM_TOKEN = "8322651200:AAGmeU2XEF2frad2d9eVf2nMgEr2K8Ws7BQ"
 TELEGRAM_CHAT_ID = "-1004495350584"
 
 # Passwörter & Zugang
-FRIEND_PASSWORD = "geheimepasswort123"  # <--- Hier das Passwort für deinen Freund ändern
-ADMIN_BYPASS_TOKEN = "mein_geheimer_admin_link" # <--- Dein persönlicher Bypass-Schlüssel
+FRIEND_PASSWORD = "geheimepasswort123"
+ADMIN_BYPASS_TOKEN = "mein_geheimer_admin_link"
 
 def init_db():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -52,6 +52,9 @@ LOGIN_HTML = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Immo Deal Hunter</title>
+    <!-- Zielscheiben-Icon für Web & Smartphone-Startbildschirm -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; color: #1e293b; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
         .login-box { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); width: 100%; max-width: 350px; text-align: center; border: 1px solid #e2e8f0; }
@@ -63,7 +66,7 @@ LOGIN_HTML = """
 </head>
 <body>
     <div class="login-box">
-        <h2>🏠 Immo Deal Hunter</h2>
+        <h2>🎯 Immo Deal Hunter</h2>
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
         <form method="POST">
             <input type="password" name="password" placeholder="Passwort eingeben..." required autofocus>
@@ -80,6 +83,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Immo Deal Hunter</title>
+    <!-- Zielscheiben-Icon für Web & Smartphone-Startbildschirm -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
     <style>
         :root { --primary: #2563eb; --success: #16a34a; --danger: #dc2626; --bg: #f8fafc; --card-bg: #ffffff; --text: #1e293b; --text-light: #64748b; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 15px; }
@@ -119,7 +125,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <body>
     <div class="container">
         <header>
-            <h1>🏠 Immo Deal Hunter</h1>
+            <h1>🎯 Immo Deal Hunter</h1>
             <div style="display:flex; gap:8px;">
                 <button class="btn-primary" onclick="openAnkerModal()">🏙️ Anker</button>
                 <button class="btn-success" onclick="sendTestDeal()">🚀 Test</button>
@@ -272,16 +278,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 @app.before_request
 def check_auth():
-    # Erlaube Telegram Webhook und statische Ressourcen ohne Login
     if request.path in ['/webhook']:
         return
     
-    # Admin-Bypass für dich über einen geheimen Link, z.B. deine-app.onrender.com/?admin=mein_geheimer_admin_link
     token = request.args.get('admin')
     if token == ADMIN_BYPASS_TOKEN:
         session['logged_in'] = True
         
-    # Prüfe ob eingeloggt
     if not session.get('logged_in'):
         if request.method == 'POST':
             pw = request.form.get('password')
@@ -414,7 +417,7 @@ def telegram_webhook():
                 ]
             }
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup", json={"chat_id": cb['message']['chat']['id'], "message_id": cb['message']['message_id'], "reply_markup": kb})
-            requests.post(f"https://api.telegram.org/bot{TELEgram_TOKEN if 'TELEGRAM_TOKEN' in globals() else TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb['id'], "text": "Aktualisiert!"})
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb['id'], "text": "Aktualisiert!"})
     return jsonify({"status": "success"})
 
 if __name__ == "__main__":
