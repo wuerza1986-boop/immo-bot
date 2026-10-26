@@ -2,12 +2,17 @@ import os
 import sqlite3
 import requests
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
 
 app = Flask(__name__)
+app.secret_key = "ein_sehr_geheimer_session_schluessel_hier"
 
 TELEGRAM_TOKEN = "8322651200:AAGmeU2XEF2frad2d9eVf2nMgEr2K8Ws7BQ"
 TELEGRAM_CHAT_ID = "-1004495350584"
+
+# Passwörter & Zugang
+FRIEND_PASSWORD = "geheimepasswort123"  # <--- Hier das Passwort für deinen Freund ändern
+ADMIN_BYPASS_TOKEN = "mein_geheimer_admin_link" # <--- Dein persönlicher Bypass-Schlüssel
 
 def init_db():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -39,6 +44,35 @@ def get_target_qmp(anker_stadt):
     row = cursor.fetchone()
     conn.close()
     return row[0] if row else 2500.0
+
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Immo Deal Hunter</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; color: #1e293b; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .login-box { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); width: 100%; max-width: 350px; text-align: center; border: 1px solid #e2e8f0; }
+        h2 { margin-bottom: 20px; font-size: 20px; color: #0f172a; }
+        input { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background-color: #2563eb; color: white; border: none; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; }
+        .error { color: #dc2626; font-size: 13px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h2>🏠 Immo Deal Hunter</h2>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        <form method="POST">
+            <input type="password" name="password" placeholder="Passwort eingeben..." required autofocus>
+            <button type="submit">Einloggen</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="de">
@@ -236,6 +270,28 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+@app.before_request
+def check_auth():
+    # Erlaube Telegram Webhook und statische Ressourcen ohne Login
+    if request.path in ['/webhook']:
+        return
+    
+    # Admin-Bypass für dich über einen geheimen Link, z.B. deine-app.onrender.com/?admin=mein_geheimer_admin_link
+    token = request.args.get('admin')
+    if token == ADMIN_BYPASS_TOKEN:
+        session['logged_in'] = True
+        
+    # Prüfe ob eingeloggt
+    if not session.get('logged_in'):
+        if request.method == 'POST':
+            pw = request.form.get('password')
+            if pw == FRIEND_PASSWORD:
+                session['logged_in'] = True
+                return redirect(url_for('home'))
+            else:
+                return render_template_string(LOGIN_HTML, error="Falsches Passwort!")
+        return render_template_string(LOGIN_HTML)
+
 @app.route("/")
 def home():
     return render_template_string(DASHBOARD_HTML)
@@ -358,7 +414,7 @@ def telegram_webhook():
                 ]
             }
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup", json={"chat_id": cb['message']['chat']['id'], "message_id": cb['message']['message_id'], "reply_markup": kb})
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb['id'], "text": "Aktualisiert!"})
+            requests.post(f"https://api.telegram.org/bot{TELEgram_TOKEN if 'TELEGRAM_TOKEN' in globals() else TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb['id'], "text": "Aktualisiert!"})
     return jsonify({"status": "success"})
 
 if __name__ == "__main__":
