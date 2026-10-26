@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Immo Deal Hunter</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f9; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #0056b3; }
+        .btn { background: #0056b3; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; margin-bottom: 15px; }
+        .btn:hover { background: #004494; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
+        th { background: #0056b3; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏠 Immo Deal Hunter</h1>
+        <p>Frankfurt & Rhein-Main Gebiet</p>
+        
+        <form action="/scan" method="POST" style="display:inline;">
+            <button type="submit" class="btn">🔍 Live-Suche starten</button>
+        </form>
+
+        <h2>Gefundene Deals</h2>
+        <table>
+            <tr>
+                <th>Titel</th>
+                <th>Preis</th>
+                <th>Ort</th>
+                <th>Aktion</th>
+            </tr>
+            {% for deal in deals %}
+            <tr>
+                <td><a href="{{ deal[4] }}" target="_blank">{{ deal[1] }}</a></td>
+                <td><b>{{ deal[2] }}</b></td>
+                <td>{{ deal[3] }}</td>
+                <td>
+                    <form action="/delete_deal/{{ deal[0] }}" method="POST">
+                        <button type="submit" style="background:#d9534f; color:white; border:none; padding:5px 10px; border-radius:3px; cursor:pointer;">Löschen</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4">Noch keine Deals vorhanden. Starte die Suche!</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>
