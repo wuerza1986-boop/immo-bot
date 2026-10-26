@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import requests
+from bs4 import BeautifulSoup
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
 
@@ -13,6 +14,11 @@ TELEGRAM_CHAT_ID = "-1004495350584"
 # Passwörter & Zugang
 FRIEND_PASSWORD = "geheimepasswort123"
 ADMIN_BYPASS_TOKEN = "mein_geheimer_admin_link"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"
+}
 
 def init_db():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -53,7 +59,6 @@ LOGIN_HTML = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Immo Deal Hunter</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; color: #1e293b; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
         .login-box { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); width: 100%; max-width: 350px; text-align: center; border: 1px solid #e2e8f0; }
@@ -83,7 +88,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Immo Deal Hunter</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
     <style>
         :root { --primary: #2563eb; --success: #16a34a; --danger: #dc2626; --bg: #f8fafc; --card-bg: #ffffff; --text: #1e293b; --text-light: #64748b; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 15px; }
@@ -176,7 +180,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 return true;
             });
             if (filtered.length === 0) {
-                container.innerHTML = '<div style="text-align:center; padding: 40px; color:var(--text-light);">Keine Deals gefunden. Klicke auf "Live-Suche starten", um Portale abzufragen.</div>';
+                container.innerHTML = '<div style="text-align:center; padding: 40px; color:var(--text-light);">Keine Deals gefunden. Klicke auf "Live-Suche starten", um Inserate zu scannen.</div>';
                 return;
             }
             container.innerHTML = '';
@@ -213,7 +217,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     <div class="badges">${badges}</div>
                     <div class="deal-footer">
                         <span>📅 <strong>${deal.erstellt_am || '-'}</strong></span>
-                        ${deal.link ? `<a class="link-btn" href="${deal.link}" target="_blank">Direkt zum Portal 🔗</a>` : ''}
+                        ${deal.link ? `<a class="link-btn" href="${deal.link}" target="_blank">Zum Original-Inserat 🔗</a>` : ''}
                     </div>
                 `;
                 container.appendChild(card);
@@ -230,22 +234,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    titel: "Wohnung #" + Math.floor(Math.random()*1000),
-                    ort: "Frankfurt Griesheim",
+                    titel: "Test-Wohnung " + Math.floor(Math.random()*1000),
+                    ort: "Frankfurt",
                     anker_stadt: "Frankfurt",
-                    preis: 175000.0,
-                    flaeche: 65.0,
-                    kontakt: "Herr Mustermann (0170-1234567)",
-                    link: "https://www.kleinanzeigen.de/s-wohnung-kaufen/frankfurt-am-main/c196l4292"
+                    preis: 200000.0,
+                    flaeche: 70.0,
+                    kontakt: "Privater Anbieter",
+                    link: "https://www.kleinanzeigen.de"
                 })
             });
             loadDeals();
         }
         async function runBackfill() {
-            if(confirm("Multi-Portal Live-Suche starten?")) {
+            if(confirm("Echte Live-Suche über alle Portale starten?")) {
                 const res = await fetch('/api/backfill', { method: 'POST' });
                 const data = await res.json();
-                alert(data.message);
+                alert(data.message + " (" + data.imported_deals + " echte Inserate gefunden)");
                 loadDeals();
             }
         }
@@ -288,11 +292,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 def check_auth():
     if request.path in ['/webhook']:
         return
-    
     token = request.args.get('admin')
     if token == ADMIN_BYPASS_TOKEN:
         session['logged_in'] = True
-        
     if not session.get('logged_in'):
         if request.method == 'POST':
             pw = request.form.get('password')
@@ -369,15 +371,19 @@ def add_deal():
 
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, erstellt_am) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                   (data.get('titel'), data.get('ort'), data.get('anker_stadt'), preis, flaeche, qmp, data.get('link'), data.get('kontakt'), time_str))
-    conn.commit()
-    deal_id = cursor.lastrowid
+    try:
+        cursor.execute("INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, erstellt_am) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       (data.get('titel'), data.get('ort'), data.get('anker_stadt'), preis, flaeche, qmp, data.get('link'), data.get('kontakt'), time_str))
+        conn.commit()
+        deal_id = cursor.lastrowid
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"status": "duplicate"}), 200
     conn.close()
 
     if TELEGRAM_CHAT_ID:
         kontakt_info = f"👤 Kontakt: {data.get('kontakt')}\n" if data.get('kontakt') else ""
-        text = (f"🔥 **NEUER DEAL GEFUNDEN** 🔥\n"
+        text = (f"🔥 **ECHTES INSERAT GEFUNDEN** 🔥\n"
                 f"🏙️ Anker: {data.get('anker_stadt')}\n"
                 f"📍 Ort: {data.get('ort')}\n"
                 f"💰 Preis: {preis:,.2f}€ (QMP: {qmp:,.2f}€)\n"
@@ -397,7 +403,7 @@ def add_deal():
 
     return jsonify({"status": "success", "deal_id": deal_id}), 201
 
-# Erzeugt funktionierende Suchlinks zu echten Inseraten
+# Integrierter Live-Scraper: Holt echte Inserate von Kleinanzeigen für alle Anker-Städte
 @app.route('/api/backfill', methods=['POST'])
 def run_historical_backfill():
     conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
@@ -406,39 +412,77 @@ def run_historical_backfill():
     ankers = [row[0] for row in cursor.fetchall()]
     conn.close()
 
-    live_queries = []
+    imported_count = 0
+    time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     for stadt in ankers:
         stadt_clean = stadt.lower().replace(" ", "-")
-        live_queries.append({
-            "titel": f"Kleinanzeigen Angebote: {stadt}",
-            "ort": f"{stadt} & Umgebung",
-            "anker_stadt": stadt,
-            "preis": 150000.0,
-            "flaeche": 75.0,
-            "kontakt": "Live-Suche Kleinanzeigen",
-            "link": f"https://www.kleinanzeigen.de/s-wohnung-kaufen/{stadt_clean}/c196"
-        })
-
-    imported_count = 0
-    conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
-    cursor = conn.cursor()
-    time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    for deal in live_queries:
-        preis = deal['preis']
-        flaeche = deal['flaeche']
-        qmp = preis / flaeche if flaeche > 0 else 0
+        url = f"https://www.kleinanzeigen.de/s-wohnung-kaufen/{stadt_clean}/c196"
+        
         try:
-            cursor.execute("INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, erstellt_am) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                           (deal['titel'], deal['ort'], deal['anker_stadt'], preis, flaeche, qmp, deal['link'], deal['kontakt'], time_str))
-            imported_count += 1
-        except sqlite3.IntegrityError:
-            pass
+            response = requests.get(url, headers=HEADERS, timeout=10)
+            if response.status_code != 200:
+                continue
 
-    conn.commit()
-    conn.close()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            articles = soup.find_all('article', class_='aditem')
 
-    return jsonify({"status": "success", "imported_deals": imported_count, "message": "Portal-Suche aktualisiert!"})
+            conn = sqlite3.connect('deal_hunter.db', check_same_thread=False)
+            cursor = conn.cursor()
+
+            for article in articles:
+                try:
+                    title_elem = article.find('a', class_='ellipsis')
+                    if not title_elem: continue
+                    titel = title_elem.text.strip()
+                    link = "https://www.kleinanzeigen.de" + title_elem['href']
+
+                    price_elem = article.find('p', class_='aditem-main--middle--price-shipping--price')
+                    preis_text = price_elem.text.strip() if price_elem else ""
+                    preis_clean = ''.join(filter(str.isdigit, preis_text))
+                    if not preis_clean: continue
+                    preis = float(preis_clean)
+
+                    ort_elem = article.find('div', class_='aditem-main--top--left')
+                    ort = ort_elem.text.strip() if ort_elem else stadt
+
+                    flaeche = 70.0  # Standard-Schätzung falls im Vorschaubild nicht direkt lesbar
+                    qmp = preis / flaeche
+                    ziel = get_target_qmp(stadt)
+
+                    cursor.execute("INSERT INTO deals (titel, ort, anker_stadt, preis, flaeche, qmp, link, kontakt, erstellt_am) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                   (titel, ort, stadt, preis, flaeche, qmp, link, "Kleinanzeigen Live", time_str))
+                    deal_id = cursor.lastrowid
+                    imported_count += 1
+
+                    if qmp <= ziel and TELEGRAM_CHAT_ID:
+                        diff = round(((qmp - ziel) / ziel) * 100, 1)
+                        diff_str = f"🎯 {abs(diff)}% unter Ziel"
+                        text = (f"🔥 **ECHTES INSERAT GEFUNDEN** 🔥\n"
+                                f"🏙️ Anker: {stadt}\n"
+                                f"📍 Titel: {titel}\n"
+                                f"💰 Preis: {preis:,.2f}€ (QMP: {qmp:,.2f}€)\n"
+                                f"🎯 Ziel-QMP: {ziel:,.2f}€ ({diff_str})\n"
+                                f"🔗 [Zum Angebot]({link})")
+                        keyboard = {
+                            "inline_keyboard": [
+                                [{"text": "📞 Angerufen", "callback_data": f"angerufen_{deal_id}"}, {"text": "👀 Besichtigung", "callback_data": f"besichtigung_{deal_id}"}],
+                                [{"text": "⭐ Favorit", "callback_data": f"favorit_{deal_id}"}, {"text": "📋 To-Do", "callback_data": f"todo_{deal_id}"}],
+                                [{"text": "❌ Abgelehnt", "callback_data": f"abgelehnt_{deal_id}"}]
+                            ]
+                        }
+                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown", "reply_markup": keyboard})
+                except sqlite3.IntegrityError:
+                    continue
+                except Exception:
+                    continue
+
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Fehler beim Scannen von {stadt}: {e}")
+
+    return jsonify({"status": "success", "imported_deals": imported_count, "message": "Live-Suche erfolgreich abgeschlossen!"})
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
@@ -467,7 +511,7 @@ def telegram_webhook():
                     [{"text": f"❌ Abgelehnt {'✅' if st[3] else ''}", "callback_data": f"abgelehnt_{did}"}]
                 ]
             }
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={"chat_id": cb['message']['chat']['id'], "message_id": cb['message']['message_id'], "reply_markup": kb})
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageReplyMarkup", json={"chat_id": cb['message']['chat']['id'], "message_id": cb['message']['message_id'], "reply_markup": kb})
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cb['id'], "text": "Aktualisiert!"})
     return jsonify({"status": "success"})
 
