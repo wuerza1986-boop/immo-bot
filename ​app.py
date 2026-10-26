@@ -503,3 +503,4 @@ def telegram_webhook():
             kb = {
                 "inline_keyboard": [
                     [{"text": f"📞 Angerufen {'✅' if st[0] else ''}", "callback_data": f"angerufen_{did}"}, {"text": f"
+ 
